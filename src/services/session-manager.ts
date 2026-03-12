@@ -110,6 +110,17 @@ export class SessionManager {
     logger.info(`Stopped scheduled playback for guild ${guildId}.`);
   }
 
+  public updateSessionConfig(guildId: string, config: GuildConfig): void {
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return;
+    }
+
+    session.config = { ...config };
+    session.scheduler.updateConfig(config.minInterval, config.maxInterval);
+    logger.info(`Updated active session config for guild ${guildId}.`);
+  }
+
   private createGuildAudioPlayer(guildId: string): AudioPlayer {
     const player = createAudioPlayer();
     this.audioPlayerService.registerGuildAudioPlayer(guildId, player);
