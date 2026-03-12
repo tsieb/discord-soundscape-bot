@@ -4,8 +4,18 @@ import { SoundFile } from '../types';
 import * as logger from '../util/logger';
 
 const DEFAULT_CATEGORY = 'default';
-const SUPPORTED_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.flac', '.webm']);
+const INVALID_CATEGORY_CHARS = /[^a-zA-Z0-9-_]/g;
 const INVALID_FILENAME_CHARS = /[^a-zA-Z0-9-_]/g;
+
+export const SUPPORTED_SOUND_EXTENSIONS = [
+  '.mp3',
+  '.wav',
+  '.ogg',
+  '.flac',
+  '.webm',
+] as const;
+
+const SUPPORTED_EXTENSION_SET = new Set<string>(SUPPORTED_SOUND_EXTENSIONS);
 
 export class EmptySoundLibraryError extends Error {
   constructor() {
@@ -19,7 +29,7 @@ export class EmptySoundLibraryError extends Error {
 export class UnsupportedSoundFormatError extends Error {
   constructor(fileName: string) {
     super(
-      `Unsupported sound format for "${fileName}". Supported formats: ${Array.from(SUPPORTED_EXTENSIONS).join(', ')}.`,
+      `Unsupported sound format for "${fileName}". Supported formats: ${SUPPORTED_SOUND_EXTENSIONS.join(', ')}.`,
     );
     this.name = 'UnsupportedSoundFormatError';
   }
@@ -36,6 +46,13 @@ export class InvalidSoundFileNameError extends Error {
   constructor(fileName: string) {
     super(`Invalid sound filename "${fileName}".`);
     this.name = 'InvalidSoundFileNameError';
+  }
+}
+
+export class InvalidSoundCategoryError extends Error {
+  constructor(category: string) {
+    super(`Invalid sound category "${category}".`);
+    this.name = 'InvalidSoundCategoryError';
   }
 }
 
@@ -107,26 +124,46 @@ export class SoundLibrary {
     return Array.from(uniqueCategories).sort();
   }
 
-  public async addSound(fileName: string, data: Buffer): Promise<SoundFile> {
+  public isSupportedFileName(fileName: string): boolean {
+    const extension = path.extname(fileName).toLowerCase();
+    return SUPPORTED_EXTENSION_SET.has(extension);
+  }
+
+  public async addSound(
+    fileName: string,
+    data: Buffer,
+    category?: string,
+  ): Promise<SoundFile> {
     const sanitizedFileName = this.sanitizeFileName(fileName);
     const extension = path.extname(sanitizedFileName).toLowerCase();
 
-    if (!SUPPORTED_EXTENSIONS.has(extension)) {
+    if (!SUPPORTED_EXTENSION_SET.has(extension)) {
       throw new UnsupportedSoundFormatError(fileName);
     }
 
-    await fs.mkdir(this.soundsDirectory, { recursive: true });
-    const destinationPath = path.join(this.soundsDirectory, sanitizedFileName);
+    const destinationDirectory =
+      category === undefined
+        ? this.soundsDirectory
+        : path.join(this.soundsDirectory, this.sanitizeCategory(category));
+
+    await fs.mkdir(destinationDirectory, { recursive: true });
+    const uniqueFileName = await this.resolveUniqueFileName(
+      destinationDirectory,
+      sanitizedFileName,
+    );
+    const destinationPath = path.join(destinationDirectory, uniqueFileName);
     await fs.writeFile(destinationPath, data);
     logger.info(`Added sound file: ${destinationPath}`);
 
     await this.rescan();
 
-    const addedSoundName = path.basename(sanitizedFileName, extension);
-    const addedSound = this.getSoundByName(addedSoundName);
+    const absoluteDestinationPath = path.resolve(destinationPath);
+    const addedSound = this.sounds.find((sound) => {
+      return sound.path === absoluteDestinationPath;
+    });
 
     if (addedSound === undefined) {
-      throw new SoundNotFoundError(addedSoundName);
+      throw new SoundNotFoundError(path.basename(uniqueFileName, extension));
     }
 
     return addedSound;
@@ -176,7 +213,7 @@ export class SoundLibrary {
       }
 
       const extension = path.extname(entry.name).toLowerCase();
-      if (!SUPPORTED_EXTENSIONS.has(extension)) {
+      if (!SUPPORTED_EXTENSION_SET.has(extension)) {
         continue;
       }
 
@@ -218,5 +255,46 @@ export class SoundLibrary {
     }
 
     return `${sanitizedName}${extension}`;
+  }
+
+  private sanitizeCategory(category: string): string {
+    const normalized = category
+      .trim()
+      .toLowerCase()
+      .replace(INVALID_CATEGORY_CHARS, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    if (normalized === '') {
+      throw new InvalidSoundCategoryError(category);
+    }
+
+    return normalized;
+  }
+
+  private async resolveUniqueFileName(
+    directory: string,
+    initialFileName: string,
+  ): Promise<string> {
+    const extension = path.extname(initialFileName);
+    const baseName = path.basename(initialFileName, extension);
+    let candidate = initialFileName;
+    let suffix = 2;
+
+    while (await this.pathExists(path.join(directory, candidate))) {
+      candidate = `${baseName}-${suffix}${extension}`;
+      suffix += 1;
+    }
+
+    return candidate;
+  }
+
+  private async pathExists(filePath: string): Promise<boolean> {
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }

@@ -4,6 +4,7 @@ import * as logger from '../util/logger';
 import { configCommandData, createConfigCommand } from './config';
 import { createJoinCommand, joinCommandData } from './join';
 import { createLeaveCommand, leaveCommandData } from './leave';
+import { createSoundsCommand, soundsCommandData } from './sounds';
 import { createStartCommand, startCommandData } from './start';
 import { createStatusCommand, statusCommandData } from './status';
 import { createStopCommand, stopCommandData } from './stop';
@@ -30,6 +31,7 @@ export const getCommandData = (): SlashCommandBuilder[] => {
     configCommandData,
     joinCommandData,
     leaveCommandData,
+    soundsCommandData,
     startCommandData,
     stopCommandData,
     statusCommandData,
@@ -45,6 +47,7 @@ export const getCommands = (
     createConfigCommand(dependencies),
     createJoinCommand(dependencies),
     createLeaveCommand(dependencies),
+    createSoundsCommand(dependencies),
     createStartCommand(dependencies),
     createStopCommand(dependencies),
     createStatusCommand(dependencies),
