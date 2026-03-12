@@ -1,7 +1,11 @@
 import {
   AudioPlayer,
+  AudioPlayerStatus,
+  AudioResource,
   VoiceConnection,
   VoiceConnectionStatus,
+  createAudioPlayer,
+  createAudioResource,
   entersState,
   joinVoiceChannel,
 } from '@discordjs/voice';
@@ -22,6 +26,12 @@ export class VoiceConnectionError extends Error {
   }
 }
 
+export class AudioPlaybackError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = 'AudioPlaybackError';
+  }
+}
 export class AudioPlayerService {
   private readonly connections = new Map<string, VoiceConnection>();
 
@@ -105,7 +115,6 @@ export class AudioPlayerService {
   public registerGuildAudioPlayer(guildId: string, player: AudioPlayer): void {
     this.playerByGuildId.set(guildId, player);
   }
-
   public getConnection(guildId: string): VoiceConnection | undefined {
     return this.connections.get(guildId);
   }
@@ -132,6 +141,98 @@ export class AudioPlayerService {
     this.maybeAutoDisconnect(guildId);
   }
 
+  public async playSound(
+    guildId: string,
+    filePath: string,
+    volume: number,
+  ): Promise<void> {
+    const connection = this.connections.get(guildId);
+
+    if (connection === undefined) {
+      throw new AudioPlaybackError(
+        `Cannot play sound in guild ${guildId}: no active voice connection.`,
+      );
+    }
+
+    const player = this.getOrCreatePlayer(guildId);
+    const resource = this.createResource(filePath, volume);
+    connection.subscribe(player);
+
+    logger.info(
+      `Starting playback for guild ${guildId}: ${filePath} (volume=${volume}).`,
+    );
+
+    return new Promise<void>((resolve, reject) => {
+      const onIdle = (): void => {
+        cleanupListeners();
+        logger.info(`Playback finished for guild ${guildId}: ${filePath}.`);
+        resolve();
+      };
+
+      const onError = (error: Error): void => {
+        cleanupListeners();
+        reject(
+          new AudioPlaybackError(
+            `Playback failed in guild ${guildId} for file ${filePath}.`,
+            error,
+          ),
+        );
+      };
+
+      const cleanupListeners = (): void => {
+        player.off(AudioPlayerStatus.Idle, onIdle);
+        player.off('error', onError);
+      };
+
+      player.on(AudioPlayerStatus.Idle, onIdle);
+      player.on('error', onError);
+      player.play(resource);
+    });
+  }
+
+  private getOrCreatePlayer(guildId: string): AudioPlayer {
+    const existingPlayer = this.playerByGuildId.get(guildId);
+
+    if (existingPlayer !== undefined) {
+      return existingPlayer;
+    }
+
+    const player = createAudioPlayer();
+    this.playerByGuildId.set(guildId, player);
+    this.registerAudioPlayerLifecycleHandlers(guildId, player);
+    return player;
+  }
+
+  private createResource(filePath: string, volume: number): AudioResource {
+    const resource = createAudioResource(filePath, {
+      inlineVolume: true,
+    });
+    resource.volume?.setVolume(volume);
+    return resource;
+  }
+
+  private registerAudioPlayerLifecycleHandlers(
+    guildId: string,
+    player: AudioPlayer,
+  ): void {
+    player.on(AudioPlayerStatus.Playing, () => {
+      logger.info(`Audio player status transitioned to Playing for guild ${guildId}.`);
+    });
+
+    player.on(AudioPlayerStatus.Idle, () => {
+      logger.info(`Audio player status transitioned to Idle for guild ${guildId}.`);
+    });
+
+    player.on(AudioPlayerStatus.AutoPaused, () => {
+      logger.warn(
+        `Audio player status transitioned to AutoPaused for guild ${guildId}.`,
+      );
+    });
+
+    player.on('error', (error: Error) => {
+      logger.error(`Audio player error for guild ${guildId}.`, error);
+    });
+  }
   private registerConnectionLifecycleHandlers(
     guildId: string,
     connection: VoiceConnection,
