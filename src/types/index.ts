@@ -2,6 +2,7 @@ import { AudioPlayer, VoiceConnection } from '@discordjs/voice';
 import {
   ChatInputCommandInteraction,
   SlashCommandBuilder,
+  SlashCommandSubcommandsOnlyBuilder,
 } from 'discord.js';
 import { Scheduler } from '../services/scheduler';
 
@@ -28,6 +29,6 @@ export interface Session {
 }
 
 export interface Command {
-  readonly data: SlashCommandBuilder;
+  readonly data: SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder;
   execute(interaction: ChatInputCommandInteraction): Promise<void>;
 }

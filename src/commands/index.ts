@@ -1,4 +1,4 @@
-import { Collection, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { Collection, REST, Routes } from 'discord.js';
 import { Command } from '../types';
 import * as logger from '../util/logger';
 import { configCommandData, createConfigCommand } from './config';
@@ -26,7 +26,7 @@ const getDeploymentTargetDescription = (guildId?: string): string => {
   return `guild commands for guild ${guildId}`;
 };
 
-export const getCommandData = (): SlashCommandBuilder[] => {
+export const getCommandData = (): Command['data'][] => {
   return [
     configCommandData,
     joinCommandData,
