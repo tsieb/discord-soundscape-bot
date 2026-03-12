@@ -121,6 +121,12 @@ export class SessionManager {
     logger.info(`Updated active session config for guild ${guildId}.`);
   }
 
+  public async playSoundNow(guildId: string, soundPath: string): Promise<void> {
+    const session = this.getRequiredSession(guildId);
+    await this.audioPlayerService.playSound(guildId, soundPath, session.config.volume);
+    logger.info(`Played manual sound in guild ${guildId}: ${soundPath}.`);
+  }
+
   private createGuildAudioPlayer(guildId: string): AudioPlayer {
     const player = createAudioPlayer();
     this.audioPlayerService.registerGuildAudioPlayer(guildId, player);
