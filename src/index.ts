@@ -3,6 +3,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Client } from 'discord.js';
 import { createClient } from './client';
+import { getCommands } from './commands';
+import { AudioPlayerService } from './services/audio-player';
+import { ConfigService } from './services/config-service';
+import { SessionManager } from './services/session-manager';
 import { SoundLibrary } from './services/sound-library';
 import * as logger from './util/logger';
 
@@ -61,12 +65,23 @@ const setupGracefulShutdown = (client: Client): void => {
 export const startBot = async (): Promise<void> => {
   validateRequiredEnvVars();
   await validateFfmpegAvailability();
+
   const soundsDirectory = process.env.SOUNDS_DIR ?? './sounds';
   const soundLibrary = new SoundLibrary(soundsDirectory);
   await soundLibrary.waitForInitialScan();
   logger.info(`Sound library ready with ${soundLibrary.getSoundCount()} sound(s).`);
 
-  const client = createClient();
+  const audioPlayerService = new AudioPlayerService();
+  const configService = new ConfigService();
+  const sessionManager = new SessionManager(audioPlayerService, soundLibrary);
+  const commands = getCommands({
+    configService,
+    sessionManager,
+    soundLibrary,
+    startedAt: new Date(),
+  });
+
+  const client = createClient(commands, audioPlayerService);
   setupGracefulShutdown(client);
   await client.login(process.env.DISCORD_TOKEN);
 };
