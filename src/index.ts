@@ -43,23 +43,49 @@ const validateFfmpegAvailability = async (): Promise<void> => {
   }
 };
 
-const setupGracefulShutdown = (client: Client): void => {
+const setupProcessLifecycleHandlers = (
+  client: Client,
+  sessionManager: SessionManager,
+): void => {
   let isShuttingDown = false;
 
-  const shutdown = (signal: NodeJS.Signals): void => {
+  const shutdown = (reason: string, exitCode: number): void => {
     if (isShuttingDown) {
       return;
     }
 
     isShuttingDown = true;
-    logger.info(`Received ${signal}. Shutting down gracefully...`);
+    logger.info(`${reason}. Shutting down gracefully...`);
 
-    client.destroy();
-    process.exit(0);
+    try {
+      sessionManager.destroyAllSessions();
+    } catch (error: unknown) {
+      logger.error('Error while destroying active sessions during shutdown.', error);
+    }
+
+    try {
+      client.destroy();
+    } catch (error: unknown) {
+      logger.error('Error while destroying Discord client during shutdown.', error);
+    }
+    process.exit(exitCode);
   };
 
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('unhandledRejection', (reason: unknown) => {
+    logger.error('Unhandled promise rejection.', reason);
+  });
+
+  process.on('uncaughtException', (error: Error) => {
+    logger.error('Uncaught exception.', error);
+    shutdown('Uncaught exception encountered', 1);
+  });
+
+  process.on('SIGINT', () => {
+    shutdown('Received SIGINT', 0);
+  });
+  process.on('SIGTERM', () => {
+    shutdown('Received SIGTERM', 0);
+  });
 };
 
 export const startBot = async (): Promise<void> => {
@@ -81,8 +107,8 @@ export const startBot = async (): Promise<void> => {
     startedAt: new Date(),
   });
 
-  const client = createClient(commands, audioPlayerService);
-  setupGracefulShutdown(client);
+  const client = createClient(commands, audioPlayerService, sessionManager);
+  setupProcessLifecycleHandlers(client, sessionManager);
   await client.login(process.env.DISCORD_TOKEN);
 };
 

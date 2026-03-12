@@ -13,10 +13,14 @@ import { VoiceBasedChannel, VoiceState } from 'discord.js';
 import * as logger from '../util/logger';
 
 const DEFAULT_RECONNECT_TIMEOUT_MS = 5_000;
+const DEFAULT_MAX_RECONNECT_ATTEMPTS = 3;
+const DEFAULT_INITIAL_RECONNECT_DELAY_MS = 1_000;
 
 interface AudioPlayerServiceOptions {
   readonly autoDisconnectWhenAlone?: boolean;
   readonly reconnectTimeoutMs?: number;
+  readonly maxReconnectAttempts?: number;
+  readonly initialReconnectDelayMs?: number;
 }
 
 export class VoiceConnectionError extends Error {
@@ -43,10 +47,22 @@ export class AudioPlayerService {
 
   private readonly reconnectTimeoutMs: number;
 
+  private readonly maxReconnectAttempts: number;
+
+  private readonly initialReconnectDelayMs: number;
+
+  private readonly reconnectInProgressGuildIds = new Set<string>();
+
+  private readonly warnedSilencedGuildIds = new Set<string>();
+
   constructor(options: AudioPlayerServiceOptions = {}) {
     this.autoDisconnectWhenAlone = options.autoDisconnectWhenAlone ?? false;
     this.reconnectTimeoutMs =
       options.reconnectTimeoutMs ?? DEFAULT_RECONNECT_TIMEOUT_MS;
+    this.maxReconnectAttempts =
+      options.maxReconnectAttempts ?? DEFAULT_MAX_RECONNECT_ATTEMPTS;
+    this.initialReconnectDelayMs =
+      options.initialReconnectDelayMs ?? DEFAULT_INITIAL_RECONNECT_DELAY_MS;
   }
 
   public async joinChannel(channel: VoiceBasedChannel): Promise<VoiceConnection> {
@@ -114,7 +130,9 @@ export class AudioPlayerService {
 
   public registerGuildAudioPlayer(guildId: string, player: AudioPlayer): void {
     this.playerByGuildId.set(guildId, player);
+    this.registerAudioPlayerLifecycleHandlers(guildId, player);
   }
+
   public getConnection(guildId: string): VoiceConnection | undefined {
     return this.connections.get(guildId);
   }
@@ -123,6 +141,11 @@ export class AudioPlayerService {
     oldState: VoiceState,
     newState: VoiceState,
   ): void {
+    const botUserId = newState.client.user?.id;
+    if (botUserId !== undefined && newState.id === botUserId) {
+      this.handleBotVoiceStateUpdate(newState);
+    }
+
     if (!this.autoDisconnectWhenAlone) {
       return;
     }
@@ -244,10 +267,14 @@ export class AudioPlayerService {
     });
 
     connection.on(VoiceConnectionStatus.Disconnected, () => {
+      if (this.connections.get(guildId) !== connection) {
+        return;
+      }
+
       logger.warn(
-        `Voice connection status transitioned to Disconnected for guild ${guildId}. Attempting reconnect.`,
+        `Voice connection status transitioned to Disconnected for guild ${guildId}.`,
       );
-      void this.tryReconnect(guildId, connection);
+      void this.tryReconnectWithBackoff(guildId, connection);
     });
 
     connection.on(VoiceConnectionStatus.Destroyed, () => {
@@ -258,32 +285,101 @@ export class AudioPlayerService {
     });
   }
 
-  private async tryReconnect(
+  private async tryReconnectWithBackoff(
     guildId: string,
     connection: VoiceConnection,
   ): Promise<void> {
-    try {
-      await Promise.race([
-        entersState(
-          connection,
-          VoiceConnectionStatus.Signalling,
-          this.reconnectTimeoutMs,
-        ),
-        entersState(
-          connection,
-          VoiceConnectionStatus.Connecting,
-          this.reconnectTimeoutMs,
-        ),
-      ]);
+    if (this.reconnectInProgressGuildIds.has(guildId)) {
+      return;
+    }
 
-      logger.info(`Reconnected voice connection for guild ${guildId}.`);
-    } catch (error: unknown) {
+    this.reconnectInProgressGuildIds.add(guildId);
+
+    try {
+      for (let attempt = 1; attempt <= this.maxReconnectAttempts; attempt += 1) {
+        if (this.connections.get(guildId) !== connection) {
+          return;
+        }
+
+        const delayMs =
+          this.initialReconnectDelayMs * 2 ** Math.max(0, attempt - 1);
+        logger.warn(
+          `Reconnect attempt ${attempt}/${this.maxReconnectAttempts} for guild ${guildId} in ${delayMs}ms.`,
+        );
+        await this.wait(delayMs);
+
+        if (this.connections.get(guildId) !== connection) {
+          return;
+        }
+
+        try {
+          await Promise.race([
+            entersState(
+              connection,
+              VoiceConnectionStatus.Signalling,
+              this.reconnectTimeoutMs,
+            ),
+            entersState(
+              connection,
+              VoiceConnectionStatus.Connecting,
+              this.reconnectTimeoutMs,
+            ),
+            entersState(
+              connection,
+              VoiceConnectionStatus.Ready,
+              this.reconnectTimeoutMs,
+            ),
+          ]);
+
+          logger.info(
+            `Reconnected voice connection for guild ${guildId} on attempt ${attempt}.`,
+          );
+          return;
+        } catch (error: unknown) {
+          logger.warn(
+            `Reconnect attempt ${attempt} failed for guild ${guildId}.`,
+          );
+          logger.debug(`Reconnect error details: ${String(error)}`);
+        }
+      }
+
       logger.error(
-        `Failed to reconnect voice connection for guild ${guildId}. Cleaning up.`,
-        error,
+        `Failed to reconnect voice connection for guild ${guildId} after ${this.maxReconnectAttempts} attempts. Cleaning up.`,
       );
       this.cleanupConnection(guildId, connection);
+    } finally {
+      this.reconnectInProgressGuildIds.delete(guildId);
     }
+  }
+
+  private handleBotVoiceStateUpdate(newState: VoiceState): void {
+    const guildId = newState.guild.id;
+
+    if (newState.channel !== null) {
+      this.channelByGuildId.set(guildId, newState.channel);
+    } else {
+      this.channelByGuildId.delete(guildId);
+    }
+
+    const isSilenced = newState.serverDeaf || newState.serverMute;
+    if (isSilenced && !this.warnedSilencedGuildIds.has(guildId)) {
+      logger.warn(
+        `Bot is server-muted or server-deafened in guild ${guildId}. Scheduling continues, but users will not hear sounds until unmuted/undeafened.`,
+      );
+      this.warnedSilencedGuildIds.add(guildId);
+      return;
+    }
+
+    if (!isSilenced && this.warnedSilencedGuildIds.has(guildId)) {
+      logger.info(`Bot is no longer server-muted/deafened in guild ${guildId}.`);
+      this.warnedSilencedGuildIds.delete(guildId);
+    }
+  }
+
+  private async wait(delayMs: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
   }
 
   private maybeAutoDisconnect(guildId: string): void {
@@ -319,6 +415,8 @@ export class AudioPlayerService {
 
     this.connections.delete(guildId);
     this.channelByGuildId.delete(guildId);
+    this.reconnectInProgressGuildIds.delete(guildId);
+    this.warnedSilencedGuildIds.delete(guildId);
 
     if (connection.state.status !== VoiceConnectionStatus.Destroyed) {
       connection.destroy();
