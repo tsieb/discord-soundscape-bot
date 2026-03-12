@@ -1,6 +1,7 @@
 import {
   ChatInputCommandInteraction,
   GuildMember,
+  PermissionFlagsBits,
   SlashCommandBuilder,
   VoiceBasedChannel,
 } from 'discord.js';
@@ -11,6 +12,41 @@ import { CommandDependencies } from './types';
 export const joinCommandData = new SlashCommandBuilder()
   .setName('join')
   .setDescription('Join your current voice channel.');
+
+const VOICE_PERMISSION_FLAGS = [
+  PermissionFlagsBits.Connect,
+  PermissionFlagsBits.Speak,
+] as const;
+
+const getVoicePermissionLabel = (permissionFlag: bigint): string => {
+  if (permissionFlag === PermissionFlagsBits.Connect) {
+    return 'Connect';
+  }
+
+  if (permissionFlag === PermissionFlagsBits.Speak) {
+    return 'Speak';
+  }
+
+  return `Unknown (${permissionFlag.toString()})`;
+};
+
+const getMissingVoicePermissions = (
+  voiceChannel: VoiceBasedChannel,
+  member: GuildMember,
+): string[] => {
+  const permissions = voiceChannel.permissionsFor(member);
+  if (permissions === null) {
+    return VOICE_PERMISSION_FLAGS.map((permissionFlag) => {
+      return getVoicePermissionLabel(permissionFlag);
+    });
+  }
+
+  return VOICE_PERMISSION_FLAGS.filter((permissionFlag) => {
+    return !permissions.has(permissionFlag);
+  }).map((permissionFlag) => {
+    return getVoicePermissionLabel(permissionFlag);
+  });
+};
 
 const getInvokerVoiceChannel = async (
   interaction: ChatInputCommandInteraction,
@@ -51,6 +87,28 @@ export const createJoinCommand = (
       if (voiceChannel === null) {
         await interaction.reply({
           content: 'You need to join a voice channel first.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const botMember = interaction.guild?.members.me;
+      if (botMember === null || botMember === undefined) {
+        await interaction.reply({
+          content:
+            'I could not verify my server permissions. Please try again in a moment.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const missingVoicePermissions = getMissingVoicePermissions(
+        voiceChannel,
+        botMember,
+      );
+      if (missingVoicePermissions.length > 0) {
+        await interaction.reply({
+          content: `I cannot join **#${voiceChannel.name}** yet. Please grant me: ${missingVoicePermissions.join(', ')} in that voice channel.`,
           ephemeral: true,
         });
         return;
