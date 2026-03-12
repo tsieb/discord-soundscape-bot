@@ -2,6 +2,7 @@ import { Collection, REST, Routes } from 'discord.js';
 import { Command } from '../types';
 import * as logger from '../util/logger';
 import { configCommandData, createConfigCommand } from './config';
+import { createHelpCommand, helpCommandData } from './help';
 import { createJoinCommand, joinCommandData } from './join';
 import { createLeaveCommand, leaveCommandData } from './leave';
 import { createSoundsCommand, soundsCommandData } from './sounds';
@@ -28,6 +29,7 @@ const getDeploymentTargetDescription = (guildId?: string): string => {
 
 export const getCommandData = (): Command['data'][] => {
   return [
+    helpCommandData,
     configCommandData,
     joinCommandData,
     leaveCommandData,
@@ -44,6 +46,7 @@ export const getCommands = (
   const commands = new Collection<string, Command>();
 
   const commandList: Command[] = [
+    createHelpCommand(dependencies),
     createConfigCommand(dependencies),
     createJoinCommand(dependencies),
     createLeaveCommand(dependencies),
