@@ -1,8 +1,8 @@
 import { AudioPlayer, createAudioPlayer } from '@discordjs/voice';
-import { VoiceBasedChannel } from 'discord.js';
-import { AudioPlayerService } from './audio-player';
+import { VoiceBasedChannel, VoiceState } from 'discord.js';
+import { AudioPlaybackError, AudioPlayerService } from './audio-player';
 import { Scheduler } from './scheduler';
-import { SoundLibrary } from './sound-library';
+import { EmptySoundLibraryError, SoundLibrary } from './sound-library';
 import { GuildConfig, Session } from '../types';
 import * as logger from '../util/logger';
 
@@ -39,19 +39,52 @@ export class SessionManager {
       config.minInterval,
       config.maxInterval,
       async () => {
-        const sound = this.soundLibrary.getRandomSound();
-        logger.info(
-          `Guild ${guildId} playing sound "${sound.name}" from ${sound.path}.`,
-        );
         if (session === null) {
           return;
         }
 
-        await this.audioPlayerService.playSound(
-          guildId,
-          sound.path,
-          session.config.volume,
+        const activeSession = session;
+        let soundPath = '';
+        let soundName = '';
+
+        try {
+          const sound = this.soundLibrary.getRandomSound();
+          soundPath = sound.path;
+          soundName = sound.name;
+        } catch (error: unknown) {
+          if (error instanceof EmptySoundLibraryError) {
+            activeSession.scheduler.stop();
+            activeSession.isPlaying = false;
+            logger.warn(
+              `Sound library is empty in guild ${guildId}. Stopping scheduler until sounds are added.`,
+            );
+            return;
+          }
+
+          throw error;
+        }
+
+        logger.info(
+          `Guild ${guildId} playing sound "${soundName}" from ${soundPath}.`,
         );
+
+        try {
+          await this.audioPlayerService.playSound(
+            guildId,
+            soundPath,
+            activeSession.config.volume,
+          );
+        } catch (error: unknown) {
+          if (error instanceof AudioPlaybackError) {
+            logger.warn(
+              `Skipping unplayable sound "${soundName}" in guild ${guildId}. Scheduler will continue.`,
+            );
+            logger.debug(`Audio playback error details: ${String(error)}`);
+            return;
+          }
+
+          throw error;
+        }
       },
     );
 
@@ -94,6 +127,44 @@ export class SessionManager {
 
   public hasSession(guildId: string): boolean {
     return this.sessions.has(guildId);
+  }
+
+  public destroyAllSessions(): void {
+    const guildIds = Array.from(this.sessions.keys());
+    for (const guildId of guildIds) {
+      this.destroySession(guildId);
+    }
+  }
+
+  public handleVoiceStateUpdate(
+    oldState: VoiceState,
+    newState: VoiceState,
+  ): void {
+    const botUserId = newState.client.user?.id;
+    if (botUserId === undefined || newState.id !== botUserId) {
+      return;
+    }
+
+    const guildId = newState.guild.id;
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return;
+    }
+
+    if (newState.channelId === null) {
+      logger.warn(
+        `Bot left voice unexpectedly in guild ${guildId}. Destroying active session.`,
+      );
+      this.destroySession(guildId);
+      return;
+    }
+
+    if (oldState.channelId !== newState.channelId) {
+      session.channelId = newState.channelId;
+      logger.info(
+        `Bot moved voice channels in guild ${guildId}. Updated session channel to ${newState.channelId}.`,
+      );
+    }
   }
 
   public startPlayback(guildId: string): void {
