@@ -3,6 +3,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Client } from 'discord.js';
 import { createClient } from './client';
+import { SoundLibrary } from './services/sound-library';
 import * as logger from './util/logger';
 
 dotenv.config();
@@ -60,6 +61,10 @@ const setupGracefulShutdown = (client: Client): void => {
 export const startBot = async (): Promise<void> => {
   validateRequiredEnvVars();
   await validateFfmpegAvailability();
+  const soundsDirectory = process.env.SOUNDS_DIR ?? './sounds';
+  const soundLibrary = new SoundLibrary(soundsDirectory);
+  await soundLibrary.waitForInitialScan();
+  logger.info(`Sound library ready with ${soundLibrary.getSoundCount()} sound(s).`);
 
   const client = createClient();
   setupGracefulShutdown(client);
