@@ -47,6 +47,10 @@ export class ConfigService {
     return { ...config };
   }
 
+  public getDefaultConfig(): GuildConfig {
+    return { ...this.defaultConfig };
+  }
+
   public setConfig(guildId: string, partial: Partial<GuildConfig>): void {
     const currentConfig = this.getConfig(guildId);
     const nextConfig = this.mergeConfig(currentConfig, partial);
@@ -56,6 +60,16 @@ export class ConfigService {
     this.persistConfigs();
 
     logger.info(`Saved config for guild ${guildId}.`);
+  }
+
+  public resetConfig(guildId: string): GuildConfig {
+    if (this.configs[guildId] !== undefined) {
+      delete this.configs[guildId];
+      this.persistConfigs();
+      logger.info(`Reset config for guild ${guildId} to defaults.`);
+    }
+
+    return this.getDefaultConfig();
   }
 
   private mergeConfig(

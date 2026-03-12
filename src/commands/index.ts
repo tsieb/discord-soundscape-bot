@@ -1,6 +1,7 @@
 import { Collection, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import { Command } from '../types';
 import * as logger from '../util/logger';
+import { configCommandData, createConfigCommand } from './config';
 import { createJoinCommand, joinCommandData } from './join';
 import { createLeaveCommand, leaveCommandData } from './leave';
 import { createStartCommand, startCommandData } from './start';
@@ -26,6 +27,7 @@ const getDeploymentTargetDescription = (guildId?: string): string => {
 
 export const getCommandData = (): SlashCommandBuilder[] => {
   return [
+    configCommandData,
     joinCommandData,
     leaveCommandData,
     startCommandData,
@@ -40,6 +42,7 @@ export const getCommands = (
   const commands = new Collection<string, Command>();
 
   const commandList: Command[] = [
+    createConfigCommand(dependencies),
     createJoinCommand(dependencies),
     createLeaveCommand(dependencies),
     createStartCommand(dependencies),
