@@ -1,4 +1,5 @@
 import { Client, GatewayIntentBits } from 'discord.js';
+import * as logger from './util/logger';
 
 export const createClient = (): Client => {
   const client = new Client({
@@ -7,17 +8,17 @@ export const createClient = (): Client => {
 
   client.once('ready', (readyClient) => {
     const guildCount = readyClient.guilds.cache.size;
-    console.log(
-      `[INFO] Bot online as ${readyClient.user.tag} in ${guildCount} guild(s).`,
+    logger.info(
+      `Bot online as ${readyClient.user.tag} in ${guildCount} guild(s).`,
     );
   });
 
   client.on('warn', (message) => {
-    console.warn(`[WARN] Discord client warning: ${message}`);
+    logger.warn(`Discord client warning: ${message}`);
   });
 
   client.on('error', (error) => {
-    console.error('[ERROR] Discord client error:', error);
+    logger.error('Discord client error.', error);
   });
 
   return client;

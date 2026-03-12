@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { Client } from 'discord.js';
 import { createClient } from './client';
+import * as logger from './util/logger';
 
 dotenv.config();
 
@@ -33,7 +34,7 @@ const setupGracefulShutdown = (client: Client): void => {
     }
 
     isShuttingDown = true;
-    console.log(`[INFO] Received ${signal}. Shutting down gracefully...`);
+    logger.info(`Received ${signal}. Shutting down gracefully...`);
 
     client.destroy();
     process.exit(0);
@@ -52,6 +53,6 @@ export const startBot = async (): Promise<void> => {
 };
 
 void startBot().catch((error: unknown) => {
-  console.error('[ERROR] Failed to start bot:', error);
+  logger.error('Failed to start bot.', error);
   process.exit(1);
 });
