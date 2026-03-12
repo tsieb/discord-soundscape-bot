@@ -18,7 +18,10 @@ export class InvalidGuildConfigError extends Error {
 
 export class ConfigPersistenceError extends Error {
   constructor(message: string, cause?: unknown) {
-    super(message, cause === undefined ? undefined : { cause });
+    super(message);
+    if (cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = cause;
+    }
     this.name = 'ConfigPersistenceError';
   }
 }
@@ -116,7 +119,7 @@ export class ConfigService {
       logger.warn(
         `Failed to read ${this.configFilePath}. Resetting to empty config map.`,
       );
-      logger.debug('Config read error details.', error);
+      logger.debug(`Config read error details: ${String(error)}`);
       return {};
     }
   }
@@ -144,7 +147,7 @@ export class ConfigService {
         parsedRecord[guildId] = candidate;
       } catch (error: unknown) {
         logger.warn(`Skipping invalid config for guild ${guildId}.`);
-        logger.debug('Invalid guild config details.', error);
+        logger.debug(`Invalid guild config details: ${String(error)}`);
       }
     }
 
