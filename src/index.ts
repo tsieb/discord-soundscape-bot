@@ -1,11 +1,15 @@
 import dotenv from 'dotenv';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { Client } from 'discord.js';
 import { createClient } from './client';
+import { SoundLibrary } from './services/sound-library';
 import * as logger from './util/logger';
 
 dotenv.config();
 
 const REQUIRED_ENV_VARS = ['DISCORD_TOKEN', 'CLIENT_ID'] as const;
+const execFileAsync = promisify(execFile);
 
 const getMissingEnvVars = (): string[] => {
   return REQUIRED_ENV_VARS.filter((envVarName) => {
@@ -23,6 +27,16 @@ const validateRequiredEnvVars = (): void => {
   throw new Error(
     `Missing required environment variables: ${missingEnvVars.join(', ')}`,
   );
+};
+
+const validateFfmpegAvailability = async (): Promise<void> => {
+  try {
+    await execFileAsync('ffmpeg', ['-version']);
+  } catch (error: unknown) {
+    const instructions =
+      'FFmpeg is required for voice playback but was not found in PATH. Install FFmpeg and ensure the ffmpeg executable is available. Download: https://ffmpeg.org/download.html';
+    throw new Error(instructions, error === undefined ? undefined : { cause: error });
+  }
 };
 
 const setupGracefulShutdown = (client: Client): void => {
@@ -46,6 +60,11 @@ const setupGracefulShutdown = (client: Client): void => {
 
 export const startBot = async (): Promise<void> => {
   validateRequiredEnvVars();
+  await validateFfmpegAvailability();
+  const soundsDirectory = process.env.SOUNDS_DIR ?? './sounds';
+  const soundLibrary = new SoundLibrary(soundsDirectory);
+  await soundLibrary.waitForInitialScan();
+  logger.info(`Sound library ready with ${soundLibrary.getSoundCount()} sound(s).`);
 
   const client = createClient();
   setupGracefulShutdown(client);
