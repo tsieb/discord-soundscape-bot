@@ -1,5 +1,6 @@
-import { Client, GatewayIntentBits } from 'discord.js';
 import dotenv from 'dotenv';
+import { Client } from 'discord.js';
+import { createClient } from './client';
 
 dotenv.config();
 
@@ -45,10 +46,7 @@ const setupGracefulShutdown = (client: Client): void => {
 export const startBot = async (): Promise<void> => {
   validateRequiredEnvVars();
 
-  const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
-  });
-
+  const client = createClient();
   setupGracefulShutdown(client);
   await client.login(process.env.DISCORD_TOKEN);
 };
