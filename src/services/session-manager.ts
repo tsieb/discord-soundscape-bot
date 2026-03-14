@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { AudioPlayer, createAudioPlayer } from '@discordjs/voice';
 import { VoiceBasedChannel, VoiceState } from 'discord.js';
 import { DensityCurveService } from './density-curve-service';
@@ -5,7 +6,14 @@ import { AudioPlaybackError, AudioPlayerService } from './audio-player';
 import { Scheduler } from './scheduler';
 import { SoundConfigService } from './sound-config-service';
 import { SoundLibrary } from './sound-library';
-import { GuildConfig, Session, SoundConfig, SoundFile } from '../types';
+import {
+  GuildConfig,
+  Session,
+  SessionPlaybackEvent,
+  SessionSnapshot,
+  SoundConfig,
+  SoundFile,
+} from '../types';
 import * as logger from '../util/logger';
 
 export class SessionNotFoundError extends Error {
@@ -15,10 +23,19 @@ export class SessionNotFoundError extends Error {
   }
 }
 
-export class SessionManager {
+interface SessionManagerEvents {
+  session_update: [guildId: string, snapshot: SessionSnapshot];
+  sound_played: [guildId: string, playback: SessionPlaybackEvent];
+}
+
+const MAX_RECENT_PLAYS = 10;
+
+export class SessionManager extends EventEmitter<SessionManagerEvents> {
   private readonly sessions = new Map<string, Session>();
 
   private readonly scheduledPlaybackInProgressGuildIds = new Set<string>();
+
+  private lastKnownGuildId: string | null = null;
 
   constructor(
     private readonly audioPlayerService: AudioPlayerService,
@@ -26,6 +43,7 @@ export class SessionManager {
     private readonly soundConfigService: SoundConfigService,
     private readonly densityCurveService: DensityCurveService,
   ) {
+    super();
     this.densityCurveService.subscribe((guildId) => {
       this.applyDensityCurveUpdate(guildId);
     });
@@ -54,10 +72,16 @@ export class SessionManager {
         ...config,
       },
       isPlaying: false,
+      createdAt: Date.now(),
+      recentPlays: [],
+      nowPlaying: null,
+      lastPlayedAtBySoundName: {},
     };
     this.sessions.set(guildId, createdSession);
+    this.lastKnownGuildId = guildId;
     this.syncSessionSoundSchedulers(createdSession);
     logger.info(`Created session for guild ${guildId} in channel ${channel.id}.`);
+    this.emitSessionUpdate(guildId);
 
     return createdSession;
   }
@@ -78,6 +102,7 @@ export class SessionManager {
     this.scheduledPlaybackInProgressGuildIds.delete(guildId);
 
     logger.info(`Destroyed session for guild ${guildId}.`);
+    this.emitSessionUpdate(guildId);
   }
 
   public getSession(guildId: string): Session | undefined {
@@ -93,6 +118,74 @@ export class SessionManager {
     for (const guildId of guildIds) {
       this.destroySession(guildId);
     }
+  }
+
+  public getActiveGuildId(): string | null {
+    const activeGuildId = this.sessions.keys().next().value;
+    if (typeof activeGuildId === 'string') {
+      return activeGuildId;
+    }
+
+    return null;
+  }
+
+  public getPrimaryGuildId(): string | null {
+    const activeGuildId = this.getActiveGuildId();
+    if (activeGuildId !== null) {
+      return activeGuildId;
+    }
+
+    return this.lastKnownGuildId;
+  }
+
+  public getSessionSnapshot(guildId: string | null): SessionSnapshot {
+    if (guildId === null) {
+      return {
+        active: false,
+        guildId: null,
+        channelId: null,
+        isPlaying: false,
+        uptime: null,
+        nextSoundEta: null,
+        recentPlays: [],
+        nowPlaying: null,
+      };
+    }
+
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return {
+        active: false,
+        guildId,
+        channelId: null,
+        isPlaying: false,
+        uptime: null,
+        nextSoundEta: null,
+        recentPlays: [],
+        nowPlaying: null,
+      };
+    }
+
+    return {
+      active: true,
+      guildId,
+      channelId: session.channelId,
+      isPlaying: session.isPlaying,
+      uptime: Math.max(0, Math.floor((Date.now() - session.createdAt) / 1000)),
+      nextSoundEta: this.getEarliestNextPlayTime(guildId),
+      recentPlays: session.recentPlays.map((play) => ({ ...play })),
+      nowPlaying:
+        session.nowPlaying === null ? null : { ...session.nowPlaying },
+    };
+  }
+
+  public getLastPlayedAt(guildId: string, soundName: string): string | null {
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return null;
+    }
+
+    return session.lastPlayedAtBySoundName[soundName] ?? null;
   }
 
   public handleVoiceStateUpdate(
@@ -123,6 +216,7 @@ export class SessionManager {
       logger.info(
         `Bot moved voice channels in guild ${guildId}. Updated session channel to ${newState.channelId}.`,
       );
+      this.emitSessionUpdate(guildId);
     }
   }
 
@@ -135,6 +229,7 @@ export class SessionManager {
       logger.warn(
         `No sounds available to schedule in guild ${guildId}. Playback remains stopped until sounds are added.`,
       );
+      this.emitSessionUpdate(guildId);
       return false;
     }
 
@@ -146,6 +241,7 @@ export class SessionManager {
     logger.info(
       `Started scheduled playback for guild ${guildId} with ${session.soundSchedulers.size} independent timer(s).`,
     );
+    this.emitSessionUpdate(guildId);
     return true;
   }
 
@@ -157,6 +253,7 @@ export class SessionManager {
     session.isPlaying = false;
     this.scheduledPlaybackInProgressGuildIds.delete(guildId);
     logger.info(`Stopped scheduled playback for guild ${guildId}.`);
+    this.emitSessionUpdate(guildId);
   }
 
   public updateSessionConfig(guildId: string, config: GuildConfig): void {
@@ -168,6 +265,7 @@ export class SessionManager {
     session.config = { ...config };
     this.syncSessionSoundSchedulers(session);
     logger.info(`Updated active session config for guild ${guildId}.`);
+    this.emitSessionUpdate(guildId);
   }
 
   public async playSoundNow(
@@ -176,12 +274,25 @@ export class SessionManager {
     volumeMultiplier = 1,
   ): Promise<void> {
     const session = this.getRequiredSession(guildId);
+    const sound = this.soundLibrary.getSounds().find((candidate) => {
+      return candidate.path === soundPath;
+    });
+
+    if (sound !== undefined) {
+      this.recordSoundPlayback(session, sound);
+    }
+
     await this.audioPlayerService.playSound(
       guildId,
       soundPath,
       session.config.volume,
       volumeMultiplier,
     );
+
+    if (sound !== undefined) {
+      this.clearNowPlaying(guildId, sound.name);
+    }
+
     logger.info(`Played manual sound in guild ${guildId}: ${soundPath}.`);
   }
 
@@ -216,6 +327,7 @@ export class SessionManager {
     logger.info(
       `Applied sound config update for "${soundName}" in guild ${guildId}.`,
     );
+    this.emitSessionUpdate(guildId);
   }
 
   private createGuildAudioPlayer(guildId: string): AudioPlayer {
@@ -274,6 +386,7 @@ export class SessionManager {
     this.scheduledPlaybackInProgressGuildIds.add(activeSession.guildId);
 
     try {
+      this.recordSoundPlayback(activeSession, sound);
       logger.info(
         `Guild ${activeSession.guildId} playing scheduled sound "${sound.name}" from ${sound.path}.`,
       );
@@ -284,6 +397,7 @@ export class SessionManager {
         soundConfig.volume,
       );
     } catch (error: unknown) {
+      this.clearNowPlaying(activeSession.guildId, sound.name);
       if (error instanceof AudioPlaybackError) {
         logger.warn(
           `Skipping unplayable sound "${sound.name}" in guild ${activeSession.guildId}. Scheduler will continue.`,
@@ -294,6 +408,7 @@ export class SessionManager {
 
       throw error;
     } finally {
+      this.clearNowPlaying(activeSession.guildId, sound.name);
       this.scheduledPlaybackInProgressGuildIds.delete(activeSession.guildId);
     }
   }
@@ -370,6 +485,8 @@ export class SessionManager {
         `No sounds remain in guild ${session.guildId}. Stopped playback until sounds are added.`,
       );
     }
+
+    this.emitSessionUpdate(session.guildId);
   }
 
   private getEffectiveIntervals(
@@ -401,6 +518,7 @@ export class SessionManager {
 
     this.syncSessionSoundSchedulers(session);
     logger.info(`Applied density curve update for guild ${guildId}.`);
+    this.emitSessionUpdate(guildId);
   }
 
   private static findEarliestNextPlayTime(
@@ -429,5 +547,40 @@ export class SessionManager {
     }
 
     throw new SessionNotFoundError(guildId);
+  }
+
+  private recordSoundPlayback(session: Session, sound: SoundFile): void {
+    const playbackEvent: SessionPlaybackEvent = {
+      name: sound.name,
+      category: sound.category,
+      timestamp: new Date().toISOString(),
+    };
+
+    session.nowPlaying = playbackEvent;
+    session.lastPlayedAtBySoundName[sound.name] = playbackEvent.timestamp;
+    session.recentPlays = [
+      playbackEvent,
+      ...session.recentPlays,
+    ].slice(0, MAX_RECENT_PLAYS);
+    this.emit('sound_played', session.guildId, { ...playbackEvent });
+    this.emitSessionUpdate(session.guildId);
+  }
+
+  private clearNowPlaying(guildId: string, soundName: string): void {
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return;
+    }
+
+    if (session.nowPlaying?.name !== soundName) {
+      return;
+    }
+
+    session.nowPlaying = null;
+    this.emitSessionUpdate(guildId);
+  }
+
+  private emitSessionUpdate(guildId: string): void {
+    this.emit('session_update', guildId, this.getSessionSnapshot(guildId));
   }
 }
