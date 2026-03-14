@@ -62,6 +62,7 @@ describe('application smoke', () => {
 
     const commands = getCommands({
       configService,
+      densityCurveService,
       sessionManager,
       soundConfigService,
       soundLibrary,

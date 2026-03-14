@@ -111,6 +111,7 @@ export const startBot = async (): Promise<void> => {
   );
   const commands = getCommands({
     configService,
+    densityCurveService,
     sessionManager,
     soundConfigService,
     soundLibrary,
