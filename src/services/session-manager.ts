@@ -1,5 +1,6 @@
 import { AudioPlayer, createAudioPlayer } from '@discordjs/voice';
 import { VoiceBasedChannel, VoiceState } from 'discord.js';
+import { DensityCurveService } from './density-curve-service';
 import { AudioPlaybackError, AudioPlayerService } from './audio-player';
 import { Scheduler } from './scheduler';
 import { SoundConfigService } from './sound-config-service';
@@ -23,7 +24,12 @@ export class SessionManager {
     private readonly audioPlayerService: AudioPlayerService,
     private readonly soundLibrary: SoundLibrary,
     private readonly soundConfigService: SoundConfigService,
-  ) {}
+    private readonly densityCurveService: DensityCurveService,
+  ) {
+    this.densityCurveService.subscribe((guildId) => {
+      this.applyDensityCurveUpdate(guildId);
+    });
+  }
 
   public async createSession(
     guildId: string,
@@ -223,6 +229,7 @@ export class SessionManager {
       session.config,
       this.soundConfigService.getSoundConfig(session.guildId, sound.name),
     );
+    const sampleFn = this.getSchedulerSampleFn(session.guildId);
 
     return new Scheduler(
       intervals.minInterval,
@@ -230,6 +237,7 @@ export class SessionManager {
       async () => {
         await this.playScheduledSound(session, sound);
       },
+      sampleFn,
     );
   }
 
@@ -330,10 +338,12 @@ export class SessionManager {
       }
 
       const intervals = this.getEffectiveIntervals(session.config, soundConfig);
+      const sampleFn = this.getSchedulerSampleFn(session.guildId);
       if (existingScheduler !== undefined) {
         existingScheduler.updateConfig(
           intervals.minInterval,
           intervals.maxInterval,
+          sampleFn,
         );
 
         if (session.isPlaying && !existingScheduler.isRunning()) {
@@ -373,6 +383,24 @@ export class SessionManager {
       minInterval: baseMinInterval / soundConfig.weight,
       maxInterval: baseMaxInterval / soundConfig.weight,
     };
+  }
+
+  private getSchedulerSampleFn(guildId: string): (() => number) | null {
+    if (this.densityCurveService.isUniformPreset(guildId)) {
+      return null;
+    }
+
+    return () => this.densityCurveService.sample(guildId);
+  }
+
+  private applyDensityCurveUpdate(guildId: string): void {
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return;
+    }
+
+    this.syncSessionSoundSchedulers(session);
+    logger.info(`Applied density curve update for guild ${guildId}.`);
   }
 
   private static findEarliestNextPlayTime(
