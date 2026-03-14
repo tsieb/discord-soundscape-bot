@@ -1,5 +1,6 @@
 import { AudioPlayer, VoiceConnection } from '@discordjs/voice';
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   SlashCommandBuilder,
   SlashCommandSubcommandsOnlyBuilder,
@@ -39,4 +40,5 @@ export interface Session {
 export interface Command {
   readonly data: SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder;
   execute(interaction: ChatInputCommandInteraction): Promise<void>;
+  autocomplete?(interaction: AutocompleteInteraction): Promise<void>;
 }

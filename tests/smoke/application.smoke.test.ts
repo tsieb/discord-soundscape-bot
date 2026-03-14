@@ -55,6 +55,7 @@ describe('application smoke', () => {
     const commands = getCommands({
       configService,
       sessionManager,
+      soundConfigService,
       soundLibrary,
       startedAt: new Date('2026-03-12T00:00:00.000Z'),
     });

@@ -182,4 +182,24 @@ describe('SoundConfigService', () => {
 
     expect(service.getAllSoundConfigs('guild-a')).toEqual(new Map());
   });
+
+  it('allows clearing only the interval override while keeping other values', async () => {
+    const service = new SoundConfigService(tempDirectory);
+
+    await service.setSoundConfig('guild-a', 'Rainstorm', {
+      weight: 2,
+      minInterval: 30,
+      maxInterval: 60,
+    });
+    const updated = await service.setSoundConfig('guild-a', 'Rainstorm', {
+      minInterval: undefined,
+      maxInterval: undefined,
+    });
+
+    expect(updated).toEqual({
+      volume: 1,
+      weight: 2,
+      enabled: true,
+    });
+  });
 });

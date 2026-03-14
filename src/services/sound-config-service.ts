@@ -59,11 +59,21 @@ export class SoundConfigService {
   ): Promise<SoundConfig> {
     const currentConfig = this.getSoundConfig(guildId, soundName);
     const nextConfig: SoundConfig = {
-      volume: partial.volume ?? currentConfig.volume,
-      weight: partial.weight ?? currentConfig.weight,
-      enabled: partial.enabled ?? currentConfig.enabled,
-      minInterval: partial.minInterval ?? currentConfig.minInterval,
-      maxInterval: partial.maxInterval ?? currentConfig.maxInterval,
+      volume: SoundConfigService.hasOwnProperty(partial, 'volume')
+        ? partial.volume
+        : currentConfig.volume,
+      weight: SoundConfigService.hasOwnProperty(partial, 'weight')
+        ? partial.weight
+        : currentConfig.weight,
+      enabled: SoundConfigService.hasOwnProperty(partial, 'enabled')
+        ? partial.enabled
+        : currentConfig.enabled,
+      minInterval: SoundConfigService.hasOwnProperty(partial, 'minInterval')
+        ? partial.minInterval
+        : currentConfig.minInterval,
+      maxInterval: SoundConfigService.hasOwnProperty(partial, 'maxInterval')
+        ? partial.maxInterval
+        : currentConfig.maxInterval,
     };
 
     SoundConfigService.validateSoundConfig(nextConfig);
@@ -295,5 +305,12 @@ export class SoundConfigService {
 
   private static isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private static hasOwnProperty<T extends object, K extends PropertyKey>(
+    value: T,
+    key: K,
+  ): value is T & Record<K, unknown> {
+    return Object.prototype.hasOwnProperty.call(value, key);
   }
 }

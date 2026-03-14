@@ -109,6 +109,7 @@ export const startBot = async (): Promise<void> => {
   const commands = getCommands({
     configService,
     sessionManager,
+    soundConfigService,
     soundLibrary,
     startedAt: new Date(),
   });
