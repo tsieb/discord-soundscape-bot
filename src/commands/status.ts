@@ -1,10 +1,10 @@
 import {
   ChatInputCommandInteraction,
-  EmbedBuilder,
   SlashCommandBuilder,
 } from 'discord.js';
 import { Command } from '../types';
 import { CommandDependencies } from './types';
+import { brandedEmbed, EmbedColors, Icons } from '../util/theme';
 
 export const statusCommandData = new SlashCommandBuilder()
   .setName('status')
@@ -69,15 +69,27 @@ export const createStatusCommand = (
         session === undefined ? 'Not connected' : `<#${session.channelId}>`;
       const playbackDisplay =
         session?.isPlaying === true ? 'Active' : 'Stopped';
+      const configuredSoundCount = dependencies.soundConfigService.getAllSoundConfigs(
+        interaction.guildId,
+      ).size;
+      const activeTimerCount =
+        session?.isPlaying === true
+          ? dependencies.sessionManager.getSoundTimerCount(interaction.guildId)
+          : 0;
       const nextSoundEta =
         session?.isPlaying === true
-          ? formatNextSoundEta(session.scheduler.getNextPlayTime())
+          ? formatNextSoundEta(
+              dependencies.sessionManager.getEarliestNextPlayTime(
+                interaction.guildId,
+              ),
+            )
           : 'Not scheduled';
 
-      const embed = new EmbedBuilder()
-        .setTitle('Soundscape Status')
+      const isIdle = session === undefined;
+      const embed = brandedEmbed(isIdle ? EmbedColors.neutral : EmbedColors.primary)
+        .setTitle(`${Icons.status} Soundscape Status`)
         .setDescription(
-          session === undefined
+          isIdle
             ? 'Bot is currently idle. Use `/join` then `/start` to begin.'
             : 'Current session details for this guild.',
         )
@@ -95,6 +107,19 @@ export const createStatusCommand = (
           {
             name: 'Sound Library',
             value: `${dependencies.soundLibrary.getSoundCount()} sound(s)`,
+            inline: true,
+          },
+          {
+            name: 'Per-Sound Overrides',
+            value:
+              configuredSoundCount === 0
+                ? 'None active'
+                : `${configuredSoundCount} configured sound(s)`,
+            inline: true,
+          },
+          {
+            name: 'Active Timers',
+            value: `${activeTimerCount}`,
             inline: true,
           },
           {
