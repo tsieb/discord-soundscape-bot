@@ -7,6 +7,7 @@ import { getCommands } from './commands';
 import { AudioPlayerService } from './services/audio-player';
 import { ConfigService } from './services/config-service';
 import { SessionManager } from './services/session-manager';
+import { SoundConfigService } from './services/sound-config-service';
 import { SoundLibrary } from './services/sound-library';
 import * as logger from './util/logger';
 
@@ -99,7 +100,12 @@ export const startBot = async (): Promise<void> => {
 
   const audioPlayerService = new AudioPlayerService();
   const configService = new ConfigService();
-  const sessionManager = new SessionManager(audioPlayerService, soundLibrary);
+  const soundConfigService = new SoundConfigService();
+  const sessionManager = new SessionManager(
+    audioPlayerService,
+    soundLibrary,
+    soundConfigService,
+  );
   const commands = getCommands({
     configService,
     sessionManager,
