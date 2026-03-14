@@ -71,6 +71,54 @@ describe('SessionManager', () => {
     };
   };
 
+  const createDensityCurveServiceMock = (
+    options: {
+      isUniformPreset?: boolean;
+      sampleValue?: number;
+    } = {},
+  ) => {
+    const listeners: Array<(guildId: string) => void> = [];
+
+    return {
+      sample: vi.fn<() => number>().mockImplementation(() => {
+        return options.sampleValue ?? 1;
+      }),
+      isUniformPreset: vi
+        .fn<(guildId: string) => boolean>()
+        .mockImplementation(() => {
+          return options.isUniformPreset ?? true;
+        }),
+      subscribe: vi
+        .fn<(listener: (guildId: string) => void) => () => void>()
+        .mockImplementation((listener: (guildId: string) => void) => {
+          listeners.push(listener);
+          return () => undefined;
+        }),
+      emitChange: (guildId: string) => {
+        for (const listener of listeners) {
+          listener(guildId);
+        }
+      },
+    };
+  };
+
+  const createManager = (
+    service: ReturnType<typeof createServiceMock>,
+    soundLibrary: ReturnType<typeof createSoundLibraryMock>,
+    soundConfigService: ReturnType<typeof createSoundConfigServiceMock>,
+    densityCurveService = createDensityCurveServiceMock(),
+  ) => {
+    return {
+      manager: new SessionManager(
+        service as never,
+        soundLibrary as never,
+        soundConfigService as never,
+        densityCurveService as never,
+      ),
+      densityCurveService,
+    };
+  };
+
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -84,12 +132,7 @@ describe('SessionManager', () => {
     const service = createServiceMock();
     const soundLibrary = createSoundLibraryMock([]);
     const soundConfigService = createSoundConfigServiceMock();
-
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     const session = await manager.createSession(
       'guild-1',
@@ -111,11 +154,7 @@ describe('SessionManager', () => {
     const service = createServiceMock();
     const soundLibrary = createSoundLibraryMock([]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     await manager.createSession(
       'guild-1',
@@ -138,11 +177,7 @@ describe('SessionManager', () => {
       { name: 'beep', path: '/beep.mp3', category: 'default' },
     ]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -170,11 +205,7 @@ describe('SessionManager', () => {
     const service = createServiceMock();
     const soundLibrary = createSoundLibraryMock([]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -202,11 +233,7 @@ describe('SessionManager', () => {
       },
     ]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -234,11 +261,7 @@ describe('SessionManager', () => {
       { name: 'b', path: '/b.mp3', category: 'default' },
     ]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -269,11 +292,7 @@ describe('SessionManager', () => {
       },
     ]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -301,7 +320,7 @@ describe('SessionManager', () => {
       maxInterval: 10,
       volume: 0.9,
     });
-    expect(schedulerUpdateSpy).toHaveBeenCalledWith(5, 10);
+    expect(schedulerUpdateSpy).toHaveBeenCalledWith(5, 10, null);
   });
 
   it('syncs independent timers as sounds are added and removed', async () => {
@@ -315,11 +334,7 @@ describe('SessionManager', () => {
     ];
     const soundLibrary = createSoundLibraryMock(sounds);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -353,11 +368,7 @@ describe('SessionManager', () => {
       },
     ]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -382,11 +393,7 @@ describe('SessionManager', () => {
     const service = createServiceMock();
     const soundLibrary = createSoundLibraryMock([]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
     await manager.createSession(
       'guild-1',
       createChannelMock('guild-1', 'voice-1') as never,
@@ -426,11 +433,7 @@ describe('SessionManager', () => {
     const service = createServiceMock();
     const soundLibrary = createSoundLibraryMock([]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     expect(() => manager.startPlayback('missing')).toThrow(SessionNotFoundError);
     expect(() => manager.stopPlayback('missing')).toThrow(SessionNotFoundError);
@@ -443,11 +446,7 @@ describe('SessionManager', () => {
     const service = createServiceMock();
     const soundLibrary = createSoundLibraryMock([]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     await manager.createSession(
       'guild-1',
@@ -477,11 +476,7 @@ describe('SessionManager', () => {
       },
     ]);
     const soundConfigService = createSoundConfigServiceMock();
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     const session = await manager.createSession(
       'guild-1',
@@ -511,11 +506,7 @@ describe('SessionManager', () => {
         maxInterval: 20,
       },
     });
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     await manager.createSession(
       'guild-1',
@@ -536,7 +527,7 @@ describe('SessionManager', () => {
     const updateSpy = vi.spyOn(scheduler, 'updateConfig');
     manager.syncAllSessionSoundSchedulers();
 
-    expect(updateSpy).toHaveBeenCalledWith(20, 40);
+    expect(updateSpy).toHaveBeenCalledWith(20, 40, null);
   });
 
   it('removes disabled sounds from active timers and restores them when re-enabled', async () => {
@@ -550,11 +541,7 @@ describe('SessionManager', () => {
       },
     };
     const soundConfigService = createSoundConfigServiceMock(soundConfigOverrides);
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     await manager.createSession(
       'guild-1',
@@ -580,11 +567,7 @@ describe('SessionManager', () => {
         volume: 1.4,
       },
     });
-    const manager = new SessionManager(
-      service as never,
-      soundLibrary as never,
-      soundConfigService as never,
-    );
+    const { manager } = createManager(service, soundLibrary, soundConfigService);
 
     await manager.createSession(
       'guild-1',
@@ -601,5 +584,48 @@ describe('SessionManager', () => {
       0.5,
       1.4,
     );
+  });
+
+  it('updates active schedulers when the density curve changes live', async () => {
+    const service = createServiceMock();
+    const soundLibrary = createSoundLibraryMock([
+      { name: 'beep', path: '/beep.mp3', category: 'default' },
+    ]);
+    const soundConfigService = createSoundConfigServiceMock();
+    const densityCurveService = createDensityCurveServiceMock({
+      isUniformPreset: false,
+      sampleValue: 3,
+    });
+    const { manager } = createManager(
+      service,
+      soundLibrary,
+      soundConfigService,
+      densityCurveService,
+    );
+
+    await manager.createSession(
+      'guild-1',
+      createChannelMock('guild-1', 'voice-1') as never,
+      {
+        minInterval: 1,
+        maxInterval: 5,
+        volume: 0.5,
+      },
+    );
+
+    const session = manager.getSession('guild-1');
+    if (session === undefined) {
+      throw new Error('Expected session to be created');
+    }
+
+    const scheduler = session.soundSchedulers.get('/beep.mp3');
+    if (scheduler === undefined) {
+      throw new Error('Expected beep scheduler');
+    }
+
+    const updateSpy = vi.spyOn(scheduler, 'updateConfig');
+    densityCurveService.emitChange('guild-1');
+
+    expect(updateSpy).toHaveBeenCalledWith(1, 5, expect.any(Function));
   });
 });
