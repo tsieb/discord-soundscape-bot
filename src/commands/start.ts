@@ -42,10 +42,24 @@ export const createStartCommand = (
         return;
       }
 
-      dependencies.sessionManager.startPlayback(interaction.guildId);
+      const started = dependencies.sessionManager.startPlayback(interaction.guildId);
+      if (!started) {
+        await interaction.reply({
+          content:
+            'No sounds are available right now. Add sounds with `/sounds add` and try `/start` again.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const timerCount = dependencies.sessionManager.getSoundTimerCount(
+        interaction.guildId,
+      );
+      const timerLabel = timerCount === 1 ? 'timer' : 'timers';
+      const verb = timerCount === 1 ? 'is' : 'are';
       const intervalRange = `${formatDuration(session.config.minInterval)} - ${formatDuration(session.config.maxInterval)}`;
       await interaction.reply(
-        `Started! Playing random sounds every **${intervalRange}**.`,
+        `Started! ${timerCount} independent ${timerLabel} ${verb} running in the **${intervalRange}** range.`,
       );
     },
   };

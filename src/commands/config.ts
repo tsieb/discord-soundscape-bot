@@ -1,10 +1,10 @@
 import {
   ChatInputCommandInteraction,
-  EmbedBuilder,
   SlashCommandBuilder,
 } from 'discord.js';
 import { GuildConfig, Command } from '../types';
 import { CommandDependencies } from './types';
+import { brandedEmbed, EmbedColors, Icons } from '../util/theme';
 
 const MIN_ALLOWED_INTERVAL_SECONDS = 5;
 const MIN_VOLUME = 0;
@@ -63,8 +63,8 @@ const createConfigEmbed = (
   title: string,
   description: string,
   config: GuildConfig,
-): EmbedBuilder => {
-  return new EmbedBuilder().setTitle(title).setDescription(description).addFields(
+): ReturnType<typeof brandedEmbed> => {
+  return brandedEmbed(EmbedColors.primary).setTitle(title).setDescription(description).addFields(
     {
       name: 'Min Interval',
       value: formatDuration(config.minInterval),
@@ -90,7 +90,7 @@ const handleViewSubcommand = async (
 ): Promise<void> => {
   const config = dependencies.configService.getConfig(guildId);
   const embed = createConfigEmbed(
-    'Current Configuration',
+    `${Icons.config} Current Configuration`,
     'Guild settings currently in effect.',
     config,
   );
@@ -153,10 +153,10 @@ const handleSetSubcommand = async (
   dependencies.sessionManager.updateSessionConfig(guildId, updatedConfig);
 
   const embed = createConfigEmbed(
-    'Configuration Updated',
+    `${Icons.success} Configuration Updated`,
     'Settings were saved and applied.',
     updatedConfig,
-  );
+  ).setColor(EmbedColors.success);
   await interaction.reply({ embeds: [embed] });
 };
 
@@ -169,10 +169,10 @@ const handleResetSubcommand = async (
   dependencies.sessionManager.updateSessionConfig(guildId, defaultConfig);
 
   const embed = createConfigEmbed(
-    'Configuration Reset',
+    `${Icons.warning} Configuration Reset`,
     'Settings were reset to defaults.',
     defaultConfig,
-  );
+  ).setColor(EmbedColors.warning);
   await interaction.reply({ embeds: [embed] });
 };
 
