@@ -1,0 +1,3 @@
+window.soundscapeDashboard = {
+  status: 'bootstrapped',
+};
