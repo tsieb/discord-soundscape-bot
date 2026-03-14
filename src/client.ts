@@ -104,6 +104,23 @@ export const createClient = (
   });
 
   client.on('interactionCreate', async (interaction) => {
+    if (interaction.isAutocomplete()) {
+      const command = commands.get(interaction.commandName);
+      if (command?.autocomplete === undefined) {
+        return;
+      }
+
+      try {
+        await command.autocomplete(interaction);
+      } catch (error: unknown) {
+        logger.error(
+          `Autocomplete execution failed for /${interaction.commandName}.`,
+          error,
+        );
+      }
+      return;
+    }
+
     if (!interaction.isChatInputCommand()) {
       return;
     }

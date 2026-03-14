@@ -1,5 +1,6 @@
 import { AudioPlayer, VoiceConnection } from '@discordjs/voice';
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   SlashCommandBuilder,
   SlashCommandSubcommandsOnlyBuilder,
@@ -18,12 +19,20 @@ export interface GuildConfig {
   volume: number;
 }
 
+export interface SoundConfig {
+  volume: number;
+  weight: number;
+  enabled: boolean;
+  minInterval?: number;
+  maxInterval?: number;
+}
+
 export interface Session {
   guildId: string;
   channelId: string;
   voiceConnection: VoiceConnection;
   audioPlayer: AudioPlayer;
-  scheduler: Scheduler;
+  soundSchedulers: Map<string, Scheduler>;
   config: GuildConfig;
   isPlaying: boolean;
 }
@@ -31,4 +40,5 @@ export interface Session {
 export interface Command {
   readonly data: SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder;
   execute(interaction: ChatInputCommandInteraction): Promise<void>;
+  autocomplete?(interaction: AutocompleteInteraction): Promise<void>;
 }
