@@ -478,6 +478,49 @@
         text-align: center;
       }
 
+      .curve-panel {
+        padding: 22px 24px;
+        display: grid;
+        gap: 16px;
+      }
+
+      .curve-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      .curve-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .curve-canvas,
+      .histogram-canvas {
+        width: 100%;
+        border-radius: 18px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(4, 7, 12, 0.22));
+      }
+
+      .curve-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      .curve-help {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
       @keyframes pulse {
         0% { box-shadow: 0 0 0 0 rgba(119, 230, 182, 0.55); }
         75% { box-shadow: 0 0 0 18px rgba(119, 230, 182, 0); }
@@ -621,28 +664,36 @@
             </div>
           </section>
 
-          <section class="panel placeholder" id="curve-shell">
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">Timing Shape</p>
-                <h2>Density Curve</h2>
+          <section class="panel" id="curve-shell">
+            <div class="curve-panel">
+              <div class="curve-toolbar">
+                <div>
+                  <p class="eyebrow">Timing Shape</p>
+                  <h2>Density Curve</h2>
+                </div>
+                <div class="curve-actions">
+                  <select id="curve-preset" class="select-input"></select>
+                  <button id="curve-undo">Undo</button>
+                  <button id="curve-redo">Redo</button>
+                  <button id="curve-save" data-variant="primary">Save Curve</button>
+                </div>
               </div>
-              <div class="connection-pill">Epic 15.5</div>
-            </div>
-            <div class="placeholder-card">
-              <div class="placeholder-lines">
-                <span></span>
-                <span></span>
-                <span></span>
+              <canvas id="curve-canvas" class="curve-canvas" width="860" height="280"></canvas>
+              <div class="curve-meta">
+                <div class="curve-help">
+                  <span>Click to add</span>
+                  <span>Drag to move</span>
+                  <span>Double-click or right-click to remove</span>
+                </div>
+                <span id="curve-feedback">Loading curve data...</span>
               </div>
-              <p class="status-note">
-                The interactive curve editor will attach here next.
-              </p>
+              <canvas id="curve-histogram" class="histogram-canvas" width="860" height="120"></canvas>
             </div>
           </section>
         </div>
       </section>
     </main>
+    <script src="/curve-editor.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

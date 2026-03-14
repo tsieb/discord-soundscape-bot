@@ -6,6 +6,46 @@ const DEFAULT_SOUND_CONFIG = {
   maxInterval: null,
 };
 
+const CURVE_PRESETS = {
+  ambient: [
+    { t: 0, d: 0.6 },
+    { t: 5, d: 1.0 },
+    { t: 10, d: 0.05 },
+    { t: 20, d: 0.01 },
+    { t: 30, d: 0.2 },
+    { t: 60, d: 4.0 },
+    { t: 120, d: 6.0 },
+    { t: 240, d: 3.5 },
+    { t: 480, d: 1.0 },
+  ],
+  bursty: [
+    { t: 0, d: 2.8 },
+    { t: 3, d: 3.4 },
+    { t: 8, d: 2.4 },
+    { t: 15, d: 1.0 },
+    { t: 30, d: 0.9 },
+    { t: 45, d: 0.5 },
+    { t: 90, d: 0.15 },
+  ],
+  sparse: [
+    { t: 0, d: 0.02 },
+    { t: 30, d: 0.02 },
+    { t: 60, d: 0.08 },
+    { t: 120, d: 0.7 },
+    { t: 240, d: 2.0 },
+    { t: 420, d: 2.4 },
+    { t: 600, d: 1.8 },
+    { t: 900, d: 0.6 },
+  ],
+  heartbeat: [
+    { t: 30, d: 0.05 },
+    { t: 45, d: 0.8 },
+    { t: 60, d: 2.5 },
+    { t: 75, d: 0.8 },
+    { t: 90, d: 0.05 },
+  ],
+};
+
 const state = {
   config: null,
   session: null,
@@ -17,11 +57,22 @@ const state = {
   volumeDebounceTimer: null,
   soundPatchTimers: new Map(),
   connectionStatus: 'connecting',
+  curvePreset: 'ambient',
+  curveDirty: false,
+  curveHydrating: false,
+  curveEditor: null,
 };
 
 const elements = {
   channelLabel: document.querySelector('#channel-label'),
   connectionPill: document.querySelector('#connection-pill'),
+  curveCanvas: document.querySelector('#curve-canvas'),
+  curveFeedback: document.querySelector('#curve-feedback'),
+  curveHistogram: document.querySelector('#curve-histogram'),
+  curvePreset: document.querySelector('#curve-preset'),
+  curveRedo: document.querySelector('#curve-redo'),
+  curveSave: document.querySelector('#curve-save'),
+  curveUndo: document.querySelector('#curve-undo'),
   guildLabel: document.querySelector('#guild-label'),
   leaveButton: document.querySelector('#leave-button'),
   masterVolume: document.querySelector('#master-volume'),
@@ -110,13 +161,22 @@ const formatWeight = (value) => {
   return `${value.toFixed(2)}x`;
 };
 
+const buildUniformCurve = () => {
+  const minInterval = state.config?.minInterval ?? 30;
+  const maxInterval = state.config?.maxInterval ?? 300;
+  return [
+    { t: minInterval, d: 1 },
+    { t: maxInterval, d: 1 },
+  ];
+};
+
 const isCustomizedSound = (sound) => {
   return (
     sound.config.volume !== DEFAULT_SOUND_CONFIG.volume ||
     sound.config.weight !== DEFAULT_SOUND_CONFIG.weight ||
     sound.config.enabled !== DEFAULT_SOUND_CONFIG.enabled ||
-    sound.config.minInterval !== null && sound.config.minInterval !== undefined ||
-    sound.config.maxInterval !== null && sound.config.maxInterval !== undefined
+    (sound.config.minInterval !== null && sound.config.minInterval !== undefined) ||
+    (sound.config.maxInterval !== null && sound.config.maxInterval !== undefined)
   );
 };
 
@@ -162,6 +222,11 @@ const sliderValueToWeight = (sliderValue) => {
 const setFeedback = (message, isError = false) => {
   elements.sessionFeedback.textContent = message;
   elements.sessionFeedback.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+};
+
+const setCurveFeedback = (message, isError = false) => {
+  elements.curveFeedback.textContent = message;
+  elements.curveFeedback.style.color = isError ? 'var(--danger)' : 'var(--muted)';
 };
 
 const setConnectionStatus = (status) => {
@@ -238,6 +303,7 @@ const renderSession = () => {
   elements.stopButton.disabled = controlsDisabled || session?.isPlaying !== true;
   elements.leaveButton.disabled = controlsDisabled;
   elements.masterVolume.disabled = controlsDisabled;
+  elements.curveSave.disabled = controlsDisabled;
 
   renderRecentPlays();
 };
@@ -357,10 +423,7 @@ const renderSounds = () => {
     const commitIntervals = () => {
       const minInterval = minIntervalInput.value === '' ? null : Number(minIntervalInput.value);
       const maxInterval = maxIntervalInput.value === '' ? null : Number(maxIntervalInput.value);
-      void patchSound(sound.name, {
-        minInterval,
-        maxInterval,
-      }, true);
+      void patchSound(sound.name, { minInterval, maxInterval }, true);
     };
 
     minIntervalInput.addEventListener('change', commitIntervals);
@@ -383,6 +446,33 @@ const renderSounds = () => {
 
     elements.soundsList.appendChild(row);
   }
+};
+
+const renderCurvePresetOptions = () => {
+  elements.curvePreset.innerHTML = `
+    <option value="custom">Custom</option>
+    <option value="ambient">Ambient</option>
+    <option value="bursty">Bursty</option>
+    <option value="sparse">Sparse</option>
+    <option value="heartbeat">Heartbeat</option>
+    <option value="uniform">Uniform</option>
+  `;
+  elements.curvePreset.value = state.curvePreset;
+};
+
+const updateCurveControls = () => {
+  elements.curveSave.textContent = state.curveDirty ? 'Save Curve *' : 'Save Curve';
+};
+
+const loadCurve = (curvePayload) => {
+  state.curveHydrating = true;
+  state.curvePreset = curvePayload.preset;
+  renderCurvePresetOptions();
+  state.curveEditor.setPoints(curvePayload.points, { recordHistory: false });
+  state.curveHydrating = false;
+  state.curveDirty = false;
+  updateCurveControls();
+  setCurveFeedback('Curve ready.');
 };
 
 const updateSession = (session) => {
@@ -478,14 +568,16 @@ const connectEvents = () => {
 };
 
 const refreshState = async () => {
-  const [session, config, soundsPayload] = await Promise.all([
+  const [session, config, soundsPayload, curvePayload] = await Promise.all([
     fetchJson('/api/session'),
     fetchJson('/api/config'),
     fetchJson('/api/sounds'),
+    fetchJson('/api/density-curve'),
   ]);
   updateSession(session);
   updateConfig(config);
   updateSounds(soundsPayload.sounds);
+  loadCurve(curvePayload);
 };
 
 const runAction = async (url, method, successMessage) => {
@@ -579,6 +671,33 @@ const playSound = async (soundName) => {
   }
 };
 
+const saveCurve = async () => {
+  try {
+    const payload = await fetchJson('/api/density-curve', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ points: state.curveEditor.getPoints() }),
+    });
+    loadCurve({
+      preset: 'custom',
+      points: payload.points,
+    });
+    setCurveFeedback('Curve saved and applied.');
+  } catch (error) {
+    setCurveFeedback(error.message, true);
+  }
+};
+
+const applyCurvePresetLocally = (preset) => {
+  const points = preset === 'uniform' ? buildUniformCurve() : CURVE_PRESETS[preset];
+  state.curvePreset = preset;
+  renderCurvePresetOptions();
+  state.curveEditor.setPoints(points, { recordHistory: true });
+  state.curveDirty = true;
+  updateCurveControls();
+  setCurveFeedback(`Preset "${preset}" loaded locally. Save to apply.`);
+};
+
 const bindEvents = () => {
   elements.startButton.addEventListener('click', () => {
     void runAction('/api/session/start', 'POST', 'Playback started.');
@@ -595,6 +714,54 @@ const bindEvents = () => {
   elements.soundFilter.addEventListener('change', () => {
     state.soundFilter = elements.soundFilter.value;
     renderSounds();
+  });
+
+  elements.curvePreset.addEventListener('change', () => {
+    const preset = elements.curvePreset.value;
+    if (preset === 'custom') {
+      return;
+    }
+    applyCurvePresetLocally(preset);
+  });
+
+  elements.curveUndo.addEventListener('click', () => {
+    state.curveEditor.undo();
+    state.curveDirty = true;
+    updateCurveControls();
+  });
+
+  elements.curveRedo.addEventListener('click', () => {
+    state.curveEditor.redo();
+    state.curveDirty = true;
+    updateCurveControls();
+  });
+
+  elements.curveSave.addEventListener('click', () => {
+    void saveCurve();
+  });
+
+  window.addEventListener('keydown', (event) => {
+    if (!(event.ctrlKey || event.metaKey)) {
+      return;
+    }
+
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+
+    if (event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      state.curveEditor.undo();
+      state.curveDirty = true;
+      updateCurveControls();
+    }
+
+    if (event.key.toLowerCase() === 'y') {
+      event.preventDefault();
+      state.curveEditor.redo();
+      state.curveDirty = true;
+      updateCurveControls();
+    }
   });
 
   elements.masterVolume.addEventListener('input', (event) => {
@@ -617,15 +784,37 @@ const startTicker = () => {
   }, 1000);
 };
 
+const bootstrapCurveEditor = () => {
+  state.curveEditor = window.createCurveEditor({
+    canvas: elements.curveCanvas,
+    histogramCanvas: elements.curveHistogram,
+    onChange(points) {
+      if (state.curveHydrating) {
+        return;
+      }
+
+      state.curveDirty = true;
+      state.curvePreset = 'custom';
+      renderCurvePresetOptions();
+      updateCurveControls();
+      setCurveFeedback(`Editing ${points.length} control points.`);
+    },
+  });
+};
+
 const bootstrap = async () => {
+  bootstrapCurveEditor();
   bindEvents();
   startTicker();
+  renderCurvePresetOptions();
+  updateCurveControls();
 
   try {
     await refreshState();
     setFeedback('Dashboard connected.');
   } catch (error) {
     setFeedback(error.message, true);
+    setCurveFeedback(error.message, true);
   }
 
   connectEvents();
