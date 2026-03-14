@@ -233,7 +233,7 @@ export class DensityCurveService {
     }
 
     if (preset !== 'custom') {
-      return { preset };
+      return { preset: preset as CurvePresetName };
     }
 
     if (!Array.isArray(rawEntry.points)) {
