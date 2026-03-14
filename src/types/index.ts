@@ -18,12 +18,20 @@ export interface GuildConfig {
   volume: number;
 }
 
+export interface SoundConfig {
+  volume: number;
+  weight: number;
+  enabled: boolean;
+  minInterval?: number;
+  maxInterval?: number;
+}
+
 export interface Session {
   guildId: string;
   channelId: string;
   voiceConnection: VoiceConnection;
   audioPlayer: AudioPlayer;
-  scheduler: Scheduler;
+  soundSchedulers: Map<string, Scheduler>;
   config: GuildConfig;
   isPlaying: boolean;
 }
