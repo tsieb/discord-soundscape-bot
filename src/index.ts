@@ -6,7 +6,6 @@ import { createClient } from './client';
 import { getCommands } from './commands';
 import { AudioPlayerService } from './services/audio-player';
 import { ConfigService } from './services/config-service';
-import { DensityCurveService } from './services/density-curve-service';
 import { SessionManager } from './services/session-manager';
 import { SoundConfigService } from './services/sound-config-service';
 import { SoundLibrary } from './services/sound-library';
@@ -101,13 +100,11 @@ export const startBot = async (): Promise<void> => {
 
   const audioPlayerService = new AudioPlayerService();
   const configService = new ConfigService();
-  const densityCurveService = new DensityCurveService();
   const soundConfigService = new SoundConfigService();
   const sessionManager = new SessionManager(
     audioPlayerService,
     soundLibrary,
     soundConfigService,
-    densityCurveService,
   );
   const commands = getCommands({
     configService,

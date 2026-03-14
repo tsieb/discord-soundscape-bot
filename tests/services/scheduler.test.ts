@@ -65,28 +65,6 @@ describe('Scheduler', () => {
     );
   });
 
-  it('uses a custom sample function and clamps it into the configured range', async () => {
-    const onTick = vi.fn().mockResolvedValue(undefined);
-    const sampleFn = vi
-      .fn<() => number>()
-      .mockReturnValueOnce(0.25)
-      .mockReturnValueOnce(9);
-    const scheduler = new Scheduler(1, 5, onTick, sampleFn);
-
-    scheduler.start();
-
-    expect(scheduler.getNextPlayTime()).toBe(
-      new Date('2026-03-12T00:00:01.000Z').getTime(),
-    );
-
-    await vi.advanceTimersByTimeAsync(1_000);
-
-    expect(onTick).toHaveBeenCalledTimes(1);
-    expect(scheduler.getNextPlayTime()).toBe(
-      new Date('2026-03-12T00:00:06.000Z').getTime(),
-    );
-  });
-
   it('keeps scheduling after tick failures', async () => {
     const loggerSpy = vi.spyOn(logger, 'error').mockImplementation(() => undefined);
     const onTick = vi

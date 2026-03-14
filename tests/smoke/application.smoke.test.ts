@@ -3,7 +3,6 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getCommands } from '../../src/commands';
 import { ConfigService } from '../../src/services/config-service';
-import { DensityCurveService } from '../../src/services/density-curve-service';
 import { SessionManager } from '../../src/services/session-manager';
 import { SoundConfigService } from '../../src/services/sound-config-service';
 import { SoundLibrary } from '../../src/services/sound-library';
@@ -18,12 +17,8 @@ import {
 
 describe('application smoke', () => {
   const tempDirectories: string[] = [];
-  const densityCurveServices: DensityCurveService[] = [];
 
   afterEach(async () => {
-    while (densityCurveServices.length > 0) {
-      densityCurveServices.pop()?.close();
-    }
     while (tempDirectories.length > 0) {
       const directory = tempDirectories.pop();
       if (directory !== undefined) {
@@ -44,8 +39,6 @@ describe('application smoke', () => {
     await soundLibrary.waitForInitialScan();
 
     const configService = new ConfigService(dataDirectory);
-    const densityCurveService = new DensityCurveService(dataDirectory);
-    densityCurveServices.push(densityCurveService);
     const soundConfigService = new SoundConfigService(dataDirectory);
     const sessionManager = new SessionManager(
       {
@@ -57,7 +50,6 @@ describe('application smoke', () => {
       } as never,
       soundLibrary,
       soundConfigService,
-      densityCurveService,
     );
 
     const commands = getCommands({

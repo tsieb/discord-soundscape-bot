@@ -24,19 +24,11 @@ export class Scheduler {
 
   private nextPlayTime: number | null = null;
 
-  private sampleFn: (() => number) | null;
-
-  constructor(
-    minInterval: number,
-    maxInterval: number,
-    onTick: SchedulerTickHandler,
-    sampleFn: (() => number) | null = null,
-  ) {
+  constructor(minInterval: number, maxInterval: number, onTick: SchedulerTickHandler) {
     Scheduler.validateIntervals(minInterval, maxInterval);
     this.minInterval = minInterval;
     this.maxInterval = maxInterval;
     this.onTick = onTick;
-    this.sampleFn = sampleFn;
   }
 
   public start(): void {
@@ -63,15 +55,10 @@ export class Scheduler {
     return this.running;
   }
 
-  public updateConfig(
-    min: number,
-    max: number,
-    sampleFn: (() => number) | null = this.sampleFn,
-  ): void {
+  public updateConfig(min: number, max: number): void {
     Scheduler.validateIntervals(min, max);
     this.minInterval = min;
     this.maxInterval = max;
-    this.sampleFn = sampleFn;
   }
 
   public getNextPlayTime(): number | null {
@@ -108,15 +95,9 @@ export class Scheduler {
   }
 
   private calculateRandomDelayMs(): number {
-    const sampledDelaySeconds =
-      this.sampleFn?.() ??
-      (this.minInterval + Math.random() * (this.maxInterval - this.minInterval));
-    const clampedDelaySeconds = Math.min(
-      this.maxInterval,
-      Math.max(this.minInterval, sampledDelaySeconds),
-    );
-
-    return Math.max(1, Math.round(clampedDelaySeconds * 1000));
+    const randomDelaySeconds =
+      this.minInterval + Math.random() * (this.maxInterval - this.minInterval);
+    return Math.max(1, Math.round(randomDelaySeconds * 1000));
   }
 
   private static validateIntervals(min: number, max: number): void {
