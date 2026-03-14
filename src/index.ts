@@ -133,7 +133,11 @@ export const startBot = async (): Promise<void> => {
   );
   const dashboardServer = isDashboardEnabled()
     ? createDashboardServer({
+        configService,
+        densityCurveService,
         sessionManager,
+        soundConfigService,
+        soundLibrary,
       })
     : null;
   const commands = getCommands({

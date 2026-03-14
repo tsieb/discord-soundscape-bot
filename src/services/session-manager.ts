@@ -75,6 +75,7 @@ export class SessionManager extends EventEmitter<SessionManagerEvents> {
       createdAt: Date.now(),
       recentPlays: [],
       nowPlaying: null,
+      lastPlayedAtBySoundName: {},
     };
     this.sessions.set(guildId, createdSession);
     this.lastKnownGuildId = guildId;
@@ -119,9 +120,18 @@ export class SessionManager extends EventEmitter<SessionManagerEvents> {
     }
   }
 
-  public getPrimaryGuildId(): string | null {
+  public getActiveGuildId(): string | null {
     const activeGuildId = this.sessions.keys().next().value;
     if (typeof activeGuildId === 'string') {
+      return activeGuildId;
+    }
+
+    return null;
+  }
+
+  public getPrimaryGuildId(): string | null {
+    const activeGuildId = this.getActiveGuildId();
+    if (activeGuildId !== null) {
       return activeGuildId;
     }
 
@@ -167,6 +177,15 @@ export class SessionManager extends EventEmitter<SessionManagerEvents> {
       nowPlaying:
         session.nowPlaying === null ? null : { ...session.nowPlaying },
     };
+  }
+
+  public getLastPlayedAt(guildId: string, soundName: string): string | null {
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return null;
+    }
+
+    return session.lastPlayedAtBySoundName[soundName] ?? null;
   }
 
   public handleVoiceStateUpdate(
@@ -538,6 +557,7 @@ export class SessionManager extends EventEmitter<SessionManagerEvents> {
     };
 
     session.nowPlaying = playbackEvent;
+    session.lastPlayedAtBySoundName[sound.name] = playbackEvent.timestamp;
     session.recentPlays = [
       playbackEvent,
       ...session.recentPlays,
