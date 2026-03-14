@@ -62,11 +62,15 @@ describe('sounds command', () => {
   });
 
   it('lists sounds filtered by category', async () => {
-    const { dependencies, soundLibrary } = createCommandDependenciesMock();
+    const { dependencies, soundLibrary, soundConfigService } =
+      createCommandDependenciesMock();
     soundLibrary.getSounds.mockReturnValue([
       { name: 'alpha', path: '/a/alpha.mp3', category: 'music' },
       { name: 'beta', path: '/a/beta.mp3', category: 'fx' },
     ]);
+    soundConfigService.getAllSoundConfigs.mockReturnValue(
+      new Map([['alpha', { volume: 1.3, weight: 1, enabled: true }]]),
+    );
 
     const command = createSoundsCommand(dependencies);
     const { interaction, reply } = createInteractionMock({
@@ -78,6 +82,7 @@ describe('sounds command', () => {
 
     const [payload] = reply.mock.calls[0] as [{ embeds: Array<{ data: { description: string; footer: { text: string } } }> }];
     expect(payload.embeds[0].data.description).toContain('alpha');
+    expect(payload.embeds[0].data.description).toContain('alpha \u2699');
     expect(payload.embeds[0].data.description).not.toContain('beta');
     expect(payload.embeds[0].data.footer.text).toContain('Total: 1 sounds');
   });

@@ -19,6 +19,7 @@ import { brandedEmbed, EmbedColors, Icons } from '../util/theme';
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
 const EMBED_DESCRIPTION_CHAR_LIMIT = 3800;
 const SOUND_NAME_AUTOCOMPLETE_LIMIT = 25;
+const CONFIGURED_SOUND_SUFFIX = ' \u2699';
 
 type SoundConfigMutation =
   | { fieldName: 'Volume'; patch: Partial<SoundConfig> }
@@ -222,12 +223,18 @@ const getFilteredSounds = (
   });
 };
 
-const getPaginatedDescriptions = (sounds: SoundFile[]): string[] => {
+const getPaginatedDescriptions = (
+  sounds: SoundFile[],
+  configuredSoundNames: Set<string>,
+): string[] => {
   const grouped = new Map<string, string[]>();
 
   for (const sound of sounds) {
     const existing = grouped.get(sound.category) ?? [];
-    existing.push(sound.name);
+    const label = configuredSoundNames.has(sound.name)
+      ? `${sound.name}${CONFIGURED_SOUND_SUFFIX}`
+      : sound.name;
+    existing.push(label);
     grouped.set(sound.category, existing);
   }
 
@@ -460,6 +467,13 @@ const listSounds = async (
 ): Promise<void> => {
   const category = interaction.options.getString('category');
   const sounds = getFilteredSounds(dependencies.soundLibrary.getSounds(), category);
+  const configuredSoundNames = new Set(
+    Array.from(
+      dependencies.soundConfigService
+        .getAllSoundConfigs(interaction.guildId ?? '')
+        .keys(),
+    ),
+  );
 
   if (sounds.length === 0) {
     await interaction.reply({
@@ -477,7 +491,7 @@ const listSounds = async (
     return;
   }
 
-  const pages = getPaginatedDescriptions(sounds);
+  const pages = getPaginatedDescriptions(sounds, configuredSoundNames);
   const firstEmbed = createListEmbed(
     pages[0],
     0,
