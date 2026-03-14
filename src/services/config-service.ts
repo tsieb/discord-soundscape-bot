@@ -8,6 +8,11 @@ const DEFAULT_MAX_INTERVAL = 300;
 const DEFAULT_VOLUME = 0.5;
 
 type GuildConfigRecord = Record<string, GuildConfig>;
+type GuildConfigChangeListener = (
+  guildId: string,
+  patch: Partial<GuildConfig>,
+  config: GuildConfig,
+) => void;
 
 export class InvalidGuildConfigError extends Error {
   constructor(message: string) {
@@ -35,6 +40,8 @@ export class ConfigService {
 
   private readonly configs: GuildConfigRecord;
 
+  private readonly listeners = new Set<GuildConfigChangeListener>();
+
   constructor(dataDirectory = process.env.DATA_DIR ?? './data') {
     this.dataDirectory = path.resolve(dataDirectory);
     this.configFilePath = path.join(this.dataDirectory, 'config.json');
@@ -60,16 +67,27 @@ export class ConfigService {
     this.persistConfigs();
 
     logger.info(`Saved config for guild ${guildId}.`);
+    this.emitChange(guildId, partial, nextConfig);
   }
 
   public resetConfig(guildId: string): GuildConfig {
+    const nextConfig = this.getDefaultConfig();
+
     if (this.configs[guildId] !== undefined) {
       delete this.configs[guildId];
       this.persistConfigs();
       logger.info(`Reset config for guild ${guildId} to defaults.`);
     }
 
-    return this.getDefaultConfig();
+    this.emitChange(guildId, nextConfig, nextConfig);
+    return nextConfig;
+  }
+
+  public subscribe(listener: GuildConfigChangeListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private mergeConfig(
@@ -204,5 +222,15 @@ export class ConfigService {
 
   private isPlainObject(value: unknown): value is Record<string, number> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  private emitChange(
+    guildId: string,
+    patch: Partial<GuildConfig>,
+    config: GuildConfig,
+  ): void {
+    for (const listener of this.listeners) {
+      listener(guildId, { ...patch }, { ...config });
+    }
   }
 }

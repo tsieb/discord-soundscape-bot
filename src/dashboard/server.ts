@@ -43,6 +43,45 @@ export const createDashboardServer = (
     });
   });
 
+  dependencies.configService.subscribe((guildId, patch) => {
+    if (dependencies.sessionManager.getPrimaryGuildId() !== guildId) {
+      return;
+    }
+
+    for (const [field, value] of Object.entries(patch)) {
+      broadcaster.broadcast({
+        event: 'config_changed',
+        data: { field, value },
+      });
+    }
+  });
+
+  dependencies.soundConfigService.subscribe((guildId, soundName, config) => {
+    if (dependencies.sessionManager.getPrimaryGuildId() !== guildId) {
+      return;
+    }
+
+    broadcaster.broadcast({
+      event: 'sound_config_changed',
+      data: { name: soundName, config },
+    });
+  });
+
+  dependencies.densityCurveService.subscribe((guildId) => {
+    if (dependencies.sessionManager.getPrimaryGuildId() !== guildId) {
+      return;
+    }
+
+    broadcaster.broadcast({
+      event: 'curve_changed',
+      data: {
+        preset: dependencies.densityCurveService.getPresetName(guildId),
+        points: dependencies.densityCurveService.getCurve(guildId),
+        cdf: dependencies.densityCurveService.getCdfData(guildId),
+      },
+    });
+  });
+
   registerSoundRoutes(app, dependencies);
   registerConfigRoutes(app, dependencies);
   registerDensityRoutes(app, dependencies);

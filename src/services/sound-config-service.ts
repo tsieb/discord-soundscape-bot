@@ -12,6 +12,11 @@ const DEFAULT_SOUND_CONFIG: SoundConfig = {
 type StoredSoundConfig = Partial<SoundConfig>;
 type GuildSoundConfigRecord = Record<string, StoredSoundConfig>;
 type SoundConfigRecord = Record<string, GuildSoundConfigRecord>;
+type SoundConfigChangeListener = (
+  guildId: string,
+  soundName: string,
+  config: SoundConfig,
+) => void;
 
 export class InvalidSoundConfigError extends Error {
   constructor(message: string) {
@@ -36,6 +41,8 @@ export class SoundConfigService {
   private readonly configFilePath: string;
 
   private readonly configs: SoundConfigRecord;
+
+  private readonly listeners = new Set<SoundConfigChangeListener>();
 
   constructor(dataDirectory = process.env.DATA_DIR ?? './data') {
     this.dataDirectory = path.resolve(dataDirectory);
@@ -96,6 +103,7 @@ export class SoundConfigService {
     this.persistConfigs();
     logger.info(`Saved sound config for "${soundName}" in guild ${guildId}.`);
 
+    this.emitChange(guildId, soundName, nextConfig);
     return { ...nextConfig };
   }
 
@@ -106,7 +114,9 @@ export class SoundConfigService {
     this.deleteStoredConfig(guildId, soundName);
     this.persistConfigs();
     logger.info(`Reset sound config for "${soundName}" in guild ${guildId}.`);
-    return { ...DEFAULT_SOUND_CONFIG };
+    const nextConfig = { ...DEFAULT_SOUND_CONFIG };
+    this.emitChange(guildId, soundName, nextConfig);
+    return nextConfig;
   }
 
   public getAllSoundConfigs(guildId: string): Map<string, SoundConfig> {
@@ -120,6 +130,13 @@ export class SoundConfigService {
         return [soundName, SoundConfigService.mergeWithDefaults(config)];
       }),
     );
+  }
+
+  public subscribe(listener: SoundConfigChangeListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private deleteStoredConfig(guildId: string, soundName: string): void {
@@ -318,5 +335,15 @@ export class SoundConfigService {
     key: K,
   ): value is T & Record<K, unknown> {
     return Object.prototype.hasOwnProperty.call(value, key);
+  }
+
+  private emitChange(
+    guildId: string,
+    soundName: string,
+    config: SoundConfig,
+  ): void {
+    for (const listener of this.listeners) {
+      listener(guildId, soundName, { ...config });
+    }
   }
 }

@@ -532,6 +532,10 @@ const connectEvents = () => {
 
   eventSource.addEventListener('open', () => {
     setConnectionStatus('live');
+    void refreshState().catch((error) => {
+      setFeedback(error.message, true);
+      setCurveFeedback(error.message, true);
+    });
   });
 
   eventSource.addEventListener('session_update', (event) => {
@@ -558,6 +562,39 @@ const connectEvents = () => {
           : sound;
       }),
     );
+  });
+
+  eventSource.addEventListener('config_changed', (event) => {
+    const payload = JSON.parse(event.data);
+    if (state.config) {
+      updateConfig({
+        ...state.config,
+        [payload.field]: payload.value,
+      });
+      return;
+    }
+
+    void refreshState().catch((error) => {
+      setFeedback(error.message, true);
+    });
+  });
+
+  eventSource.addEventListener('sound_config_changed', (event) => {
+    const payload = JSON.parse(event.data);
+    updateSounds(
+      state.sounds.map((sound) => {
+        return sound.name === payload.name
+          ? {
+              ...sound,
+              config: payload.config,
+            }
+          : sound;
+      }),
+    );
+  });
+
+  eventSource.addEventListener('curve_changed', (event) => {
+    loadCurve(JSON.parse(event.data));
   });
 
   eventSource.onerror = () => {
