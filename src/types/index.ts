@@ -62,6 +62,7 @@ export interface Session {
   createdAt: number;
   recentPlays: SessionPlaybackEvent[];
   nowPlaying: SessionPlaybackEvent | null;
+  lastPlayedAtBySoundName: Record<string, string>;
 }
 
 export interface Command {
