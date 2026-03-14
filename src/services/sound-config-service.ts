@@ -59,14 +59,20 @@ export class SoundConfigService {
   ): Promise<SoundConfig> {
     const currentConfig = this.getSoundConfig(guildId, soundName);
     const nextConfig: SoundConfig = {
-      volume: SoundConfigService.hasOwnProperty(partial, 'volume')
-        ? partial.volume
+      volume:
+        SoundConfigService.hasOwnProperty(partial, 'volume') &&
+        partial.volume !== undefined
+          ? partial.volume
         : currentConfig.volume,
-      weight: SoundConfigService.hasOwnProperty(partial, 'weight')
-        ? partial.weight
+      weight:
+        SoundConfigService.hasOwnProperty(partial, 'weight') &&
+        partial.weight !== undefined
+          ? partial.weight
         : currentConfig.weight,
-      enabled: SoundConfigService.hasOwnProperty(partial, 'enabled')
-        ? partial.enabled
+      enabled:
+        SoundConfigService.hasOwnProperty(partial, 'enabled') &&
+        partial.enabled !== undefined
+          ? partial.enabled
         : currentConfig.enabled,
       minInterval: SoundConfigService.hasOwnProperty(partial, 'minInterval')
         ? partial.minInterval
