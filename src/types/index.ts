@@ -19,6 +19,13 @@ export interface GuildConfig {
   volume: number;
 }
 
+export interface CurvePoint {
+  t: number;
+  d: number;
+}
+
+export type DensityCurve = CurvePoint[];
+
 export interface SoundConfig {
   volume: number;
   weight: number;
