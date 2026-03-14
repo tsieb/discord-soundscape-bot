@@ -168,6 +168,7 @@ export class AudioPlayerService {
     guildId: string,
     filePath: string,
     volume: number,
+    volumeMultiplier = 1,
   ): Promise<void> {
     const connection = this.connections.get(guildId);
 
@@ -178,11 +179,12 @@ export class AudioPlayerService {
     }
 
     const player = this.getOrCreatePlayer(guildId);
-    const resource = this.createResource(filePath, volume);
+    const effectiveVolume = volume * volumeMultiplier;
+    const resource = this.createResource(filePath, effectiveVolume);
     connection.subscribe(player);
 
     logger.info(
-      `Starting playback for guild ${guildId}: ${filePath} (volume=${volume}).`,
+      `Starting playback for guild ${guildId}: ${filePath} (volume=${effectiveVolume}).`,
     );
 
     return new Promise<void>((resolve, reject) => {

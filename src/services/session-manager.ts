@@ -2,8 +2,9 @@ import { AudioPlayer, createAudioPlayer } from '@discordjs/voice';
 import { VoiceBasedChannel, VoiceState } from 'discord.js';
 import { AudioPlaybackError, AudioPlayerService } from './audio-player';
 import { Scheduler } from './scheduler';
-import { EmptySoundLibraryError, SoundLibrary } from './sound-library';
-import { GuildConfig, Session } from '../types';
+import { SoundConfigService } from './sound-config-service';
+import { SoundLibrary } from './sound-library';
+import { GuildConfig, Session, SoundConfig, SoundFile } from '../types';
 import * as logger from '../util/logger';
 
 export class SessionNotFoundError extends Error {
@@ -16,9 +17,12 @@ export class SessionNotFoundError extends Error {
 export class SessionManager {
   private readonly sessions = new Map<string, Session>();
 
+  private readonly scheduledPlaybackInProgressGuildIds = new Set<string>();
+
   constructor(
     private readonly audioPlayerService: AudioPlayerService,
     private readonly soundLibrary: SoundLibrary,
+    private readonly soundConfigService: SoundConfigService,
   ) {}
 
   public async createSession(
@@ -33,75 +37,20 @@ export class SessionManager {
 
     const voiceConnection = await this.audioPlayerService.joinChannel(channel);
     const audioPlayer = this.createGuildAudioPlayer(guildId);
-    let session: Session | null = null;
-
-    const scheduler = new Scheduler(
-      config.minInterval,
-      config.maxInterval,
-      async () => {
-        if (session === null) {
-          return;
-        }
-
-        const activeSession = session;
-        let soundPath = '';
-        let soundName = '';
-
-        try {
-          const sound = this.soundLibrary.getRandomSound();
-          soundPath = sound.path;
-          soundName = sound.name;
-        } catch (error: unknown) {
-          if (error instanceof EmptySoundLibraryError) {
-            activeSession.scheduler.stop();
-            activeSession.isPlaying = false;
-            logger.warn(
-              `Sound library is empty in guild ${guildId}. Stopping scheduler until sounds are added.`,
-            );
-            return;
-          }
-
-          throw error;
-        }
-
-        logger.info(
-          `Guild ${guildId} playing sound "${soundName}" from ${soundPath}.`,
-        );
-
-        try {
-          await this.audioPlayerService.playSound(
-            guildId,
-            soundPath,
-            activeSession.config.volume,
-          );
-        } catch (error: unknown) {
-          if (error instanceof AudioPlaybackError) {
-            logger.warn(
-              `Skipping unplayable sound "${soundName}" in guild ${guildId}. Scheduler will continue.`,
-            );
-            logger.debug(`Audio playback error details: ${String(error)}`);
-            return;
-          }
-
-          throw error;
-        }
-      },
-    );
 
     const createdSession: Session = {
       guildId,
       channelId: channel.id,
       voiceConnection,
       audioPlayer,
-      scheduler,
+      soundSchedulers: new Map<string, Scheduler>(),
       config: {
         ...config,
       },
       isPlaying: false,
     };
-    session = createdSession;
-
     this.sessions.set(guildId, createdSession);
+    this.syncSessionSoundSchedulers(createdSession);
     logger.info(`Created session for guild ${guildId} in channel ${channel.id}.`);
 
     return createdSession;
@@ -113,10 +62,14 @@ export class SessionManager {
       return;
     }
 
-    session.scheduler.stop();
+    for (const scheduler of session.soundSchedulers.values()) {
+      scheduler.stop();
+    }
+    session.soundSchedulers.clear();
     session.audioPlayer.stop(true);
     this.audioPlayerService.leaveChannel(guildId);
     this.sessions.delete(guildId);
+    this.scheduledPlaybackInProgressGuildIds.delete(guildId);
 
     logger.info(`Destroyed session for guild ${guildId}.`);
   }
@@ -167,17 +120,36 @@ export class SessionManager {
     }
   }
 
-  public startPlayback(guildId: string): void {
+  public startPlayback(guildId: string): boolean {
     const session = this.getRequiredSession(guildId);
-    session.scheduler.start();
+    this.syncSessionSoundSchedulers(session);
+
+    if (session.soundSchedulers.size === 0) {
+      session.isPlaying = false;
+      logger.warn(
+        `No sounds available to schedule in guild ${guildId}. Playback remains stopped until sounds are added.`,
+      );
+      return false;
+    }
+
+    for (const scheduler of session.soundSchedulers.values()) {
+      scheduler.start();
+    }
+
     session.isPlaying = true;
-    logger.info(`Started scheduled playback for guild ${guildId}.`);
+    logger.info(
+      `Started scheduled playback for guild ${guildId} with ${session.soundSchedulers.size} independent timer(s).`,
+    );
+    return true;
   }
 
   public stopPlayback(guildId: string): void {
     const session = this.getRequiredSession(guildId);
-    session.scheduler.stop();
+    for (const scheduler of session.soundSchedulers.values()) {
+      scheduler.stop();
+    }
     session.isPlaying = false;
+    this.scheduledPlaybackInProgressGuildIds.delete(guildId);
     logger.info(`Stopped scheduled playback for guild ${guildId}.`);
   }
 
@@ -188,20 +160,238 @@ export class SessionManager {
     }
 
     session.config = { ...config };
-    session.scheduler.updateConfig(config.minInterval, config.maxInterval);
+    this.syncSessionSoundSchedulers(session);
     logger.info(`Updated active session config for guild ${guildId}.`);
   }
 
-  public async playSoundNow(guildId: string, soundPath: string): Promise<void> {
+  public async playSoundNow(
+    guildId: string,
+    soundPath: string,
+    volumeMultiplier = 1,
+  ): Promise<void> {
     const session = this.getRequiredSession(guildId);
-    await this.audioPlayerService.playSound(guildId, soundPath, session.config.volume);
+    await this.audioPlayerService.playSound(
+      guildId,
+      soundPath,
+      session.config.volume,
+      volumeMultiplier,
+    );
     logger.info(`Played manual sound in guild ${guildId}: ${soundPath}.`);
+  }
+
+  public syncAllSessionSoundSchedulers(): void {
+    for (const session of this.sessions.values()) {
+      this.syncSessionSoundSchedulers(session);
+    }
+  }
+
+  public getEarliestNextPlayTime(guildId: string): number | null {
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return null;
+    }
+
+    return SessionManager.findEarliestNextPlayTime(
+      session.soundSchedulers.values(),
+    );
+  }
+
+  public getSoundTimerCount(guildId: string): number {
+    return this.sessions.get(guildId)?.soundSchedulers.size ?? 0;
+  }
+
+  public applySoundConfig(guildId: string, soundName: string): void {
+    const session = this.sessions.get(guildId);
+    if (session === undefined) {
+      return;
+    }
+
+    this.syncSessionSoundSchedulers(session);
+    logger.info(
+      `Applied sound config update for "${soundName}" in guild ${guildId}.`,
+    );
   }
 
   private createGuildAudioPlayer(guildId: string): AudioPlayer {
     const player = createAudioPlayer();
     this.audioPlayerService.registerGuildAudioPlayer(guildId, player);
     return player;
+  }
+
+  private createSoundScheduler(session: Session, sound: SoundFile): Scheduler {
+    const intervals = this.getEffectiveIntervals(
+      session.config,
+      this.soundConfigService.getSoundConfig(session.guildId, sound.name),
+    );
+
+    return new Scheduler(
+      intervals.minInterval,
+      intervals.maxInterval,
+      async () => {
+        await this.playScheduledSound(session, sound);
+      },
+    );
+  }
+
+  private async playScheduledSound(
+    session: Session,
+    sound: SoundFile,
+  ): Promise<void> {
+    const activeSession = this.sessions.get(session.guildId);
+    if (activeSession === undefined || !activeSession.isPlaying) {
+      return;
+    }
+
+    if (!activeSession.soundSchedulers.has(sound.path)) {
+      return;
+    }
+
+    const soundConfig = this.soundConfigService.getSoundConfig(
+      activeSession.guildId,
+      sound.name,
+    );
+    if (!soundConfig.enabled) {
+      return;
+    }
+
+    if (
+      this.scheduledPlaybackInProgressGuildIds.has(activeSession.guildId)
+    ) {
+      logger.debug(
+        `Skipping scheduled sound "${sound.name}" in guild ${activeSession.guildId} because playback is already active.`,
+      );
+      return;
+    }
+
+    this.scheduledPlaybackInProgressGuildIds.add(activeSession.guildId);
+
+    try {
+      logger.info(
+        `Guild ${activeSession.guildId} playing scheduled sound "${sound.name}" from ${sound.path}.`,
+      );
+      await this.audioPlayerService.playSound(
+        activeSession.guildId,
+        sound.path,
+        activeSession.config.volume,
+        soundConfig.volume,
+      );
+    } catch (error: unknown) {
+      if (error instanceof AudioPlaybackError) {
+        logger.warn(
+          `Skipping unplayable sound "${sound.name}" in guild ${activeSession.guildId}. Scheduler will continue.`,
+        );
+        logger.debug(`Audio playback error details: ${String(error)}`);
+        return;
+      }
+
+      throw error;
+    } finally {
+      this.scheduledPlaybackInProgressGuildIds.delete(activeSession.guildId);
+    }
+  }
+
+  private syncSessionSoundSchedulers(session: Session): void {
+    const sounds = this.soundLibrary.getSounds();
+    const soundsByPath = new Map<string, SoundFile>();
+    for (const sound of sounds) {
+      soundsByPath.set(sound.path, sound);
+    }
+
+    for (const [soundPath, scheduler] of session.soundSchedulers.entries()) {
+      if (soundsByPath.has(soundPath)) {
+        continue;
+      }
+
+      scheduler.stop();
+      session.soundSchedulers.delete(soundPath);
+      logger.info(
+        `Removed timer for deleted sound ${soundPath} in guild ${session.guildId}.`,
+      );
+    }
+
+    for (const sound of sounds) {
+      const soundConfig = this.soundConfigService.getSoundConfig(
+        session.guildId,
+        sound.name,
+      );
+      const existingScheduler = session.soundSchedulers.get(sound.path);
+
+      if (!soundConfig.enabled) {
+        if (existingScheduler === undefined) {
+          continue;
+        }
+
+        existingScheduler.stop();
+        session.soundSchedulers.delete(sound.path);
+        logger.info(
+          `Disabled timer for sound "${sound.name}" in guild ${session.guildId}.`,
+        );
+        continue;
+      }
+
+      const intervals = this.getEffectiveIntervals(session.config, soundConfig);
+      if (existingScheduler !== undefined) {
+        existingScheduler.updateConfig(
+          intervals.minInterval,
+          intervals.maxInterval,
+        );
+
+        if (session.isPlaying && !existingScheduler.isRunning()) {
+          existingScheduler.start();
+        }
+        continue;
+      }
+
+      const scheduler = this.createSoundScheduler(session, sound);
+      session.soundSchedulers.set(sound.path, scheduler);
+      logger.info(
+        `Registered independent timer for sound "${sound.name}" in guild ${session.guildId}.`,
+      );
+
+      if (session.isPlaying) {
+        scheduler.start();
+      }
+    }
+
+    if (session.isPlaying && session.soundSchedulers.size === 0) {
+      session.isPlaying = false;
+      this.scheduledPlaybackInProgressGuildIds.delete(session.guildId);
+      logger.warn(
+        `No sounds remain in guild ${session.guildId}. Stopped playback until sounds are added.`,
+      );
+    }
+  }
+
+  private getEffectiveIntervals(
+    guildConfig: GuildConfig,
+    soundConfig: SoundConfig,
+  ): { minInterval: number; maxInterval: number } {
+    const baseMinInterval = soundConfig.minInterval ?? guildConfig.minInterval;
+    const baseMaxInterval = soundConfig.maxInterval ?? guildConfig.maxInterval;
+
+    return {
+      minInterval: baseMinInterval / soundConfig.weight,
+      maxInterval: baseMaxInterval / soundConfig.weight,
+    };
+  }
+
+  private static findEarliestNextPlayTime(
+    schedulers: Iterable<Scheduler>,
+  ): number | null {
+    let earliest: number | null = null;
+
+    for (const scheduler of schedulers) {
+      const nextPlayTime = scheduler.getNextPlayTime();
+      if (nextPlayTime === null) {
+        continue;
+      }
+
+      if (earliest === null || nextPlayTime < earliest) {
+        earliest = nextPlayTime;
+      }
+    }
+
+    return earliest;
   }
 
   private getRequiredSession(guildId: string): Session {
