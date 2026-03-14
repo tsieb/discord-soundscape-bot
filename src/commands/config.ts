@@ -1,7 +1,13 @@
 import {
+  AutocompleteInteraction,
   ChatInputCommandInteraction,
   SlashCommandBuilder,
 } from 'discord.js';
+import {
+  CURVE_PRESET_NAMES,
+  CurvePresetName,
+} from '../data/curve-presets';
+import { buildCdf, sampleFromCdf } from '../services/density-curve-math';
 import { GuildConfig, Command } from '../types';
 import { CommandDependencies } from './types';
 import { brandedEmbed, EmbedColors, Icons } from '../util/theme';
@@ -45,6 +51,33 @@ export const configCommandData = new SlashCommandBuilder()
     return subcommand
       .setName('reset')
       .setDescription('Reset guild settings back to defaults.');
+  })
+  .addSubcommandGroup((group) => {
+    return group
+      .setName('density')
+      .setDescription('Manage the guild density curve preset.')
+      .addSubcommand((subcommand) => {
+        return subcommand
+          .setName('preset')
+          .setDescription('Apply a named density preset.')
+          .addStringOption((option) => {
+            return option
+              .setName('name')
+              .setDescription('Preset to apply.')
+              .setRequired(true)
+              .setAutocomplete(true);
+          });
+      })
+      .addSubcommand((subcommand) => {
+        return subcommand
+          .setName('view')
+          .setDescription('View the active density preset and sample quantiles.');
+      })
+      .addSubcommand((subcommand) => {
+        return subcommand
+          .setName('reset')
+          .setDescription('Revert density shaping to the ambient default.');
+      });
   });
 
 const formatDuration = (seconds: number): string => {
@@ -57,6 +90,60 @@ const formatDuration = (seconds: number): string => {
 
 const formatVolume = (volume: number): string => {
   return `${Math.round(volume * 100)}% (${volume.toFixed(2)})`;
+};
+
+const formatPresetLabel = (presetName: string): string => {
+  if (presetName === 'custom') {
+    return 'Custom';
+  }
+
+  return presetName.charAt(0).toUpperCase() + presetName.slice(1);
+};
+
+const formatSampleQuantile = (seconds: number): string => {
+  if (seconds >= 60) {
+    return `${(seconds / 60).toFixed(1)}m (${Math.round(seconds)}s)`;
+  }
+
+  return `${seconds.toFixed(1)}s`;
+};
+
+const getPeakGapSeconds = (
+  dependencies: CommandDependencies,
+  guildId: string,
+): number => {
+  if (dependencies.densityCurveService.isUniformPreset(guildId)) {
+    const config = dependencies.configService.getConfig(guildId);
+    return (config.minInterval + config.maxInterval) / 2;
+  }
+
+  const curve = dependencies.densityCurveService.getCurve(guildId);
+  return curve.reduce((peakPoint, point) => {
+    return point.d > peakPoint.d ? point : peakPoint;
+  }).t;
+};
+
+const getQuantiles = (
+  dependencies: CommandDependencies,
+  guildId: string,
+): { p25: number; p50: number; p75: number } => {
+  if (dependencies.densityCurveService.isUniformPreset(guildId)) {
+    const config = dependencies.configService.getConfig(guildId);
+    const span = config.maxInterval - config.minInterval;
+
+    return {
+      p25: config.minInterval + span * 0.25,
+      p50: config.minInterval + span * 0.5,
+      p75: config.minInterval + span * 0.75,
+    };
+  }
+
+  const cdf = buildCdf(dependencies.densityCurveService.getCurve(guildId));
+  return {
+    p25: sampleFromCdf(cdf, 0.25),
+    p50: sampleFromCdf(cdf, 0.5),
+    p75: sampleFromCdf(cdf, 0.75),
+  };
 };
 
 const createConfigEmbed = (
@@ -176,11 +263,137 @@ const handleResetSubcommand = async (
   await interaction.reply({ embeds: [embed] });
 };
 
+const handleDensityPresetSubcommand = async (
+  interaction: ChatInputCommandInteraction,
+  dependencies: CommandDependencies,
+  guildId: string,
+): Promise<void> => {
+  const presetName = interaction.options.getString('name');
+  if (presetName === null || !CURVE_PRESET_NAMES.includes(presetName as CurvePresetName)) {
+    await interaction.reply({
+      content: 'Choose a valid density preset.',
+      ephemeral: true,
+    });
+    return;
+  }
+
+  await dependencies.densityCurveService.applyPreset(
+    guildId,
+    presetName as CurvePresetName,
+  );
+
+  const peakGapSeconds = getPeakGapSeconds(dependencies, guildId);
+  const embed = brandedEmbed(EmbedColors.success)
+    .setTitle(`${Icons.success} Density Preset Applied`)
+    .setDescription('The scheduler will use the updated timing shape on the next cycle.')
+    .addFields(
+      {
+        name: 'Preset',
+        value: formatPresetLabel(presetName),
+        inline: true,
+      },
+      {
+        name: 'Peak Gap',
+        value: formatDuration(Math.round(peakGapSeconds)),
+        inline: true,
+      },
+    );
+
+  await interaction.reply({ embeds: [embed] });
+};
+
+const handleDensityViewSubcommand = async (
+  interaction: ChatInputCommandInteraction,
+  dependencies: CommandDependencies,
+  guildId: string,
+): Promise<void> => {
+  const presetName = dependencies.densityCurveService.getPresetName(guildId);
+  const peakGapSeconds = getPeakGapSeconds(dependencies, guildId);
+  const quantiles = getQuantiles(dependencies, guildId);
+
+  const embed = brandedEmbed(EmbedColors.primary)
+    .setTitle(`${Icons.status} Density Configuration`)
+    .setDescription('Current timing distribution for this guild.')
+    .addFields(
+      {
+        name: 'Preset',
+        value: formatPresetLabel(presetName),
+        inline: true,
+      },
+      {
+        name: 'Peak Gap',
+        value: formatDuration(Math.round(peakGapSeconds)),
+        inline: true,
+      },
+      {
+        name: 'p25',
+        value: formatSampleQuantile(quantiles.p25),
+        inline: true,
+      },
+      {
+        name: 'p50',
+        value: formatSampleQuantile(quantiles.p50),
+        inline: true,
+      },
+      {
+        name: 'p75',
+        value: formatSampleQuantile(quantiles.p75),
+        inline: true,
+      },
+    );
+
+  await interaction.reply({ embeds: [embed] });
+};
+
+const handleDensityResetSubcommand = async (
+  interaction: ChatInputCommandInteraction,
+  dependencies: CommandDependencies,
+  guildId: string,
+): Promise<void> => {
+  await dependencies.densityCurveService.applyPreset(guildId, 'ambient');
+
+  const embed = brandedEmbed(EmbedColors.warning)
+    .setTitle(`${Icons.warning} Density Reset`)
+    .setDescription('Density shaping was reset to the ambient default preset.')
+    .addFields({
+      name: 'Preset',
+      value: formatPresetLabel('ambient'),
+      inline: true,
+    });
+
+  await interaction.reply({ embeds: [embed] });
+};
+
 export const createConfigCommand = (
   dependencies: CommandDependencies,
 ): Command => {
   return {
     data: configCommandData,
+    autocomplete: async (
+      interaction: AutocompleteInteraction,
+    ): Promise<void> => {
+      if (interaction.options.getSubcommandGroup() !== 'density') {
+        await interaction.respond([]);
+        return;
+      }
+
+      if (interaction.options.getSubcommand() !== 'preset') {
+        await interaction.respond([]);
+        return;
+      }
+
+      const focused = interaction.options.getFocused().toLowerCase();
+      const choices = CURVE_PRESET_NAMES.filter((presetName) => {
+        return presetName.includes(focused);
+      }).slice(0, 25);
+
+      await interaction.respond(
+        choices.map((presetName) => ({
+          name: formatPresetLabel(presetName),
+          value: presetName,
+        })),
+      );
+    },
     execute: async (interaction: ChatInputCommandInteraction): Promise<void> => {
       if (interaction.guildId === null) {
         await interaction.reply({
@@ -191,7 +404,23 @@ export const createConfigCommand = (
       }
 
       const guildId = interaction.guildId;
+      const subcommandGroup = interaction.options.getSubcommandGroup();
       const subcommand = interaction.options.getSubcommand();
+
+      if (subcommandGroup === 'density') {
+        if (subcommand === 'preset') {
+          await handleDensityPresetSubcommand(interaction, dependencies, guildId);
+          return;
+        }
+
+        if (subcommand === 'view') {
+          await handleDensityViewSubcommand(interaction, dependencies, guildId);
+          return;
+        }
+
+        await handleDensityResetSubcommand(interaction, dependencies, guildId);
+        return;
+      }
 
       if (subcommand === 'view') {
         await handleViewSubcommand(interaction, dependencies, guildId);

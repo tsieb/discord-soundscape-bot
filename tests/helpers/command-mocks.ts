@@ -133,6 +133,12 @@ export interface CommandDependenciesMock {
     resetSoundConfig: ReturnType<typeof vi.fn>;
     setSoundConfig: ReturnType<typeof vi.fn>;
   };
+  densityCurveService: {
+    applyPreset: ReturnType<typeof vi.fn>;
+    getCurve: ReturnType<typeof vi.fn>;
+    getPresetName: ReturnType<typeof vi.fn>;
+    isUniformPreset: ReturnType<typeof vi.fn>;
+  };
 }
 
 export const createCommandDependenciesMock = (): CommandDependenciesMock => {
@@ -199,9 +205,23 @@ export const createCommandDependenciesMock = (): CommandDependenciesMock => {
     }),
   };
 
+  const densityCurveService = {
+    applyPreset: vi.fn<(guildId: string, presetName: string) => Promise<void>>().mockResolvedValue(undefined),
+    getCurve: vi.fn<(guildId: string) => Array<{ t: number; d: number }>>().mockReturnValue([
+      { t: 0, d: 0.2 },
+      { t: 30, d: 0.8 },
+      { t: 90, d: 1.4 },
+      { t: 180, d: 0.6 },
+    ]),
+    getPresetName: vi.fn<(guildId: string) => string>().mockReturnValue('ambient'),
+    isUniformPreset: vi.fn<(guildId: string) => boolean>().mockReturnValue(false),
+  };
+
   return {
     dependencies: {
       configService: configService as unknown as CommandDependencies['configService'],
+      densityCurveService:
+        densityCurveService as unknown as CommandDependencies['densityCurveService'],
       sessionManager:
         sessionManager as unknown as CommandDependencies['sessionManager'],
       soundConfigService:
@@ -210,6 +230,7 @@ export const createCommandDependenciesMock = (): CommandDependenciesMock => {
       startedAt: new Date('2026-01-01T00:00:00.000Z'),
     },
     configService,
+    densityCurveService,
     sessionManager,
     soundConfigService,
     soundLibrary,
