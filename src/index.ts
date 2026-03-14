@@ -4,6 +4,10 @@ import { promisify } from 'node:util';
 import { Client } from 'discord.js';
 import { createClient } from './client';
 import { getCommands } from './commands';
+import {
+  createDashboardServer,
+  DashboardServer,
+} from './dashboard/server';
 import { AudioPlayerService } from './services/audio-player';
 import { ConfigService } from './services/config-service';
 import { DensityCurveService } from './services/density-curve-service';
@@ -16,6 +20,10 @@ dotenv.config();
 
 const REQUIRED_ENV_VARS = ['DISCORD_TOKEN', 'CLIENT_ID'] as const;
 const execFileAsync = promisify(execFile);
+
+const isDashboardEnabled = (): boolean => {
+  return (process.env.DASHBOARD_ENABLED ?? 'true').toLowerCase() !== 'false';
+};
 
 const getMissingEnvVars = (): string[] => {
   return REQUIRED_ENV_VARS.filter((envVarName) => {
@@ -48,6 +56,8 @@ const validateFfmpegAvailability = async (): Promise<void> => {
 const setupProcessLifecycleHandlers = (
   client: Client,
   sessionManager: SessionManager,
+  dashboardServer: DashboardServer | null,
+  densityCurveService: DensityCurveService,
 ): void => {
   let isShuttingDown = false;
 
@@ -63,6 +73,18 @@ const setupProcessLifecycleHandlers = (
       sessionManager.destroyAllSessions();
     } catch (error: unknown) {
       logger.error('Error while destroying active sessions during shutdown.', error);
+    }
+
+    try {
+      dashboardServer?.close();
+    } catch (error: unknown) {
+      logger.error('Error while closing dashboard server during shutdown.', error);
+    }
+
+    try {
+      densityCurveService.close();
+    } catch (error: unknown) {
+      logger.error('Error while closing density curve service during shutdown.', error);
     }
 
     try {
@@ -109,6 +131,11 @@ export const startBot = async (): Promise<void> => {
     soundConfigService,
     densityCurveService,
   );
+  const dashboardServer = isDashboardEnabled()
+    ? createDashboardServer({
+        sessionManager,
+      })
+    : null;
   const commands = getCommands({
     configService,
     densityCurveService,
@@ -119,7 +146,20 @@ export const startBot = async (): Promise<void> => {
   });
 
   const client = createClient(commands, audioPlayerService, sessionManager);
-  setupProcessLifecycleHandlers(client, sessionManager);
+  setupProcessLifecycleHandlers(
+    client,
+    sessionManager,
+    dashboardServer,
+    densityCurveService,
+  );
+
+  if (dashboardServer !== null) {
+    const port = Number.parseInt(process.env.DASHBOARD_PORT ?? '4242', 10);
+    dashboardServer.listen(port, '127.0.0.1', () => {
+      logger.info(`Dashboard listening on http://localhost:${port}.`);
+    });
+  }
+
   await client.login(process.env.DISCORD_TOKEN);
 };
 

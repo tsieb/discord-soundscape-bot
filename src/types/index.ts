@@ -34,6 +34,23 @@ export interface SoundConfig {
   maxInterval?: number;
 }
 
+export interface SessionPlaybackEvent {
+  name: string;
+  category: string;
+  timestamp: string;
+}
+
+export interface SessionSnapshot {
+  active: boolean;
+  guildId: string | null;
+  channelId: string | null;
+  isPlaying: boolean;
+  uptime: number | null;
+  nextSoundEta: number | null;
+  recentPlays: SessionPlaybackEvent[];
+  nowPlaying: SessionPlaybackEvent | null;
+}
+
 export interface Session {
   guildId: string;
   channelId: string;
@@ -42,6 +59,9 @@ export interface Session {
   soundSchedulers: Map<string, Scheduler>;
   config: GuildConfig;
   isPlaying: boolean;
+  createdAt: number;
+  recentPlays: SessionPlaybackEvent[];
+  nowPlaying: SessionPlaybackEvent | null;
 }
 
 export interface Command {
