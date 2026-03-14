@@ -9,7 +9,7 @@ import { registerSoundRoutes } from './routes/sounds';
 import { SseBroadcaster } from './sse-broadcaster';
 import { DashboardServices } from './types';
 
-export interface DashboardServerDependencies extends DashboardServices {}
+export type DashboardServerDependencies = DashboardServices;
 
 export interface DashboardServer {
   app: Express;

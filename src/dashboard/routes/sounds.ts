@@ -72,9 +72,12 @@ export const registerSoundRoutes = (
       return;
     }
 
-    const sound = services.soundLibrary.getSoundByName(request.params.name);
+    const soundName = Array.isArray(request.params.name)
+      ? request.params.name[0]
+      : request.params.name;
+    const sound = services.soundLibrary.getSoundByName(soundName);
     if (sound === undefined) {
-      sendJsonError(response, 404, `Sound "${request.params.name}" was not found.`);
+      sendJsonError(response, 404, `Sound "${soundName}" was not found.`);
       return;
     }
 
@@ -118,12 +121,15 @@ export const registerSoundRoutes = (
         return;
       }
 
-      const sound = services.soundLibrary.getSoundByName(request.params.name);
+      const soundName = Array.isArray(request.params.name)
+        ? request.params.name[0]
+        : request.params.name;
+      const sound = services.soundLibrary.getSoundByName(soundName);
       if (sound === undefined) {
         sendJsonError(
           response,
           404,
-          `Sound "${request.params.name}" was not found.`,
+          `Sound "${soundName}" was not found.`,
         );
         return;
       }
