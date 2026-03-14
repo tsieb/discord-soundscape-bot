@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { AddressInfo } from 'node:net';
+import { get } from 'node:http';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -220,5 +222,67 @@ describe('dashboard server', () => {
     expect(patchResponse.body).toEqual({
       error: 'No active guild session is available for dashboard control.',
     });
+  });
+
+  it('broadcasts config, sound config, and curve updates over sse', async () => {
+    const server = dashboardServer.listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => {
+      server.once('listening', () => {
+        resolve();
+      });
+    });
+
+    const { port } = server.address() as AddressInfo;
+    const streamPromise = new Promise<string>((resolve, reject) => {
+      const sseRequest = get(`http://127.0.0.1:${port}/api/events`, (response) => {
+        let responseText = '';
+
+        response.on('data', (chunk: Buffer) => {
+          responseText += chunk.toString('utf8');
+
+          if (
+            responseText.includes('event: session_update') &&
+            responseText.includes('event: config_changed') &&
+            responseText.includes('"field":"volume"') &&
+            responseText.includes('event: sound_config_changed') &&
+            responseText.includes('"name":"thunder"') &&
+            responseText.includes('event: curve_changed') &&
+            responseText.includes('"preset":"custom"')
+          ) {
+            sseRequest.destroy();
+            resolve(responseText);
+          }
+        });
+
+        response.on('error', reject);
+      });
+
+      sseRequest.on('error', reject);
+    });
+
+    await request(dashboardServer.app).patch('/api/config').send({
+      volume: 0.75,
+    });
+    await request(dashboardServer.app).patch('/api/sounds/thunder').send({
+      enabled: false,
+    });
+    await request(dashboardServer.app)
+      .put('/api/density-curve')
+      .send({
+        points: [
+          { t: 0, d: 0.2 },
+          { t: 30, d: 1.5 },
+          { t: 120, d: 0.4 },
+        ],
+      });
+
+    const responseText = await streamPromise;
+    expect(responseText).toContain('event: session_update');
+    expect(responseText).toContain('event: config_changed');
+    expect(responseText).toContain('"field":"volume"');
+    expect(responseText).toContain('event: sound_config_changed');
+    expect(responseText).toContain('"name":"thunder"');
+    expect(responseText).toContain('event: curve_changed');
+    expect(responseText).toContain('"preset":"custom"');
   });
 });
