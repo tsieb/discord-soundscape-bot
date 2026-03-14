@@ -338,6 +338,146 @@
         font-size: 0.9rem;
       }
 
+      .select-input {
+        border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        padding: 9px 12px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        font: inherit;
+      }
+
+      .sounds-panel {
+        padding: 22px 24px;
+      }
+
+      .sounds-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+
+      .sounds-tools {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .sounds-list {
+        display: grid;
+        gap: 12px;
+        max-height: 520px;
+        overflow: auto;
+        padding-right: 6px;
+      }
+
+      .sound-row {
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .sound-main {
+        display: grid;
+        grid-template-columns: auto minmax(180px, 1.2fr) minmax(140px, 1fr) minmax(140px, 1fr) auto auto;
+        gap: 14px;
+        align-items: center;
+        padding: 14px 16px;
+      }
+
+      .sound-meta {
+        display: grid;
+        gap: 6px;
+      }
+
+      .sound-name {
+        font-weight: 700;
+      }
+
+      .sound-subline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 0.84rem;
+      }
+
+      .sound-badge {
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: rgba(143, 211, 255, 0.12);
+        color: var(--accent);
+      }
+
+      .sound-control {
+        display: grid;
+        gap: 6px;
+      }
+
+      .sound-control label {
+        color: var(--muted);
+        font-size: 0.8rem;
+      }
+
+      .sound-control strong {
+        font-size: 0.88rem;
+      }
+
+      .icon-button {
+        width: 42px;
+        height: 42px;
+        padding: 0;
+      }
+
+      .icon-button.active {
+        border-color: rgba(245, 184, 76, 0.55);
+        background: rgba(245, 184, 76, 0.12);
+      }
+
+      .detail-row {
+        display: none;
+        gap: 12px;
+        padding: 0 16px 16px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .detail-row.open {
+        display: grid;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+        gap: 12px;
+        width: 100%;
+        padding-top: 14px;
+      }
+
+      .detail-field {
+        display: grid;
+        gap: 6px;
+      }
+
+      .detail-field input {
+        border: 1px solid var(--border-strong);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: rgba(255, 255, 255, 0.06);
+        color: var(--text);
+        font: inherit;
+      }
+
+      .empty-state {
+        padding: 24px;
+        border-radius: 18px;
+        border: 1px dashed rgba(255, 255, 255, 0.12);
+        color: var(--muted);
+        text-align: center;
+      }
+
       @keyframes pulse {
         0% { box-shadow: 0 0 0 0 rgba(119, 230, 182, 0.55); }
         75% { box-shadow: 0 0 0 18px rgba(119, 230, 182, 0); }
@@ -467,22 +607,17 @@
 
         <div class="workspace-grid">
           <section class="panel placeholder" id="sounds-shell">
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow">Library</p>
-                <h2>Sounds</h2>
+            <div class="sounds-panel">
+              <div class="sounds-header">
+                <div>
+                  <p class="eyebrow">Library</p>
+                  <h2>Sounds <span id="sound-count"></span></h2>
+                </div>
+                <div class="sounds-tools">
+                  <select id="sound-filter" class="select-input"></select>
+                </div>
               </div>
-              <div class="connection-pill">Epic 15.4</div>
-            </div>
-            <div class="placeholder-card">
-              <div class="placeholder-lines">
-                <span></span>
-                <span></span>
-                <span></span>
-              </div>
-              <p class="status-note">
-                Per-sound controls are loading in the next epic.
-              </p>
+              <div id="sounds-list" class="sounds-list"></div>
             </div>
           </section>
 
